@@ -18,6 +18,7 @@ from coin import update_coins, draw_coins, get_coin_count, clear_coins
 from store import get_store
 from upgrade_effects import apply_upgrade_effects, reset_upgrade_states
 from pause_menu import PauseMenu  # <--- new import for in-game pause menu
+from options_menu import OptionsMenu  # <--- new import for options menu
 
 # --- helper ---
 def reflect(ball, rect):
@@ -295,6 +296,10 @@ particles = []
 tutorial_overlay = TutorialOverlay()
 # Pause menu overlay
 pause_menu = PauseMenu()
+# Options menu overlay
+options_menu = OptionsMenu()
+# Apply saved settings on startup
+options_menu._apply_settings()
 # Store interface
 store = get_store()
 # Disable cannon fire until tutorial is dismissed (restart)
@@ -461,9 +466,20 @@ while running:
         castle.shooting_enabled = castle._pre_store_shoot
         delattr(castle, '_pre_store_shoot')
 
+    # -------------------------------------------------------------
+    # NEW: Temporarily disable cannon shooting while options menu is open
+    # -------------------------------------------------------------
+    if options_menu.active:
+        if not hasattr(castle, '_pre_options_shoot'):
+            castle._pre_options_shoot = castle.shooting_enabled
+        castle.shooting_enabled = False
+    elif hasattr(castle, '_pre_options_shoot'):
+        castle.shooting_enabled = castle._pre_options_shoot
+        delattr(castle, '_pre_options_shoot')
+
     # Inform castle update logic whether rebuild progress should be paused
     castle._pause_rebuild = intro_active
-    paused = intro_active or tutorial_overlay.active or pause_menu.active
+    paused = intro_active or tutorial_overlay.active or pause_menu.active or options_menu.active
 
     # Apply time scaling only to gameplay portion
     if wave_transition['state'] in ('approach', 'focus', 'resume'):
@@ -602,6 +618,9 @@ while running:
     # feed events to pause menu
     pause_menu.update(events)
     
+    # feed events to options menu
+    options_menu.update(events)
+    
     # feed events to store
     for event in events:
         if store.handle_event(event):
@@ -610,7 +629,7 @@ while running:
     # -----------------------------------------------------
     #  Recalculate paused state now that overlays processed
     # -----------------------------------------------------
-    paused = intro_active or tutorial_overlay.active or pause_menu.active or store.active
+    paused = intro_active or tutorial_overlay.active or pause_menu.active or options_menu.active or store.active
 
     for e in events:
         if e.type==pygame.QUIT:
@@ -1280,13 +1299,22 @@ while running:
         label = small_font.render(ptype[0].upper(), True, clr)
         scene_surf.blit(label, (x+bar_w//2-4, bar_y-12))
 
+    # FPS display (if enabled in options)
+    if options_menu.get_setting('show_fps', False):
+        fps_text = f"FPS: {int(clock.get_fps())}"
+        fps_surf = small_font.render(fps_text, True, (255, 255, 255))
+        scene_surf.blit(fps_surf, (WIDTH - fps_surf.get_width() - 10, 10))
+
     # Screen shake offset
     offset_x = offset_y = 0
-    if shake_frames > 0:
+    if shake_frames > 0 and options_menu.get_setting('screen_shake', True):
         # Ensure shake_intensity is always positive
         intensity = abs(shake_intensity)
         offset_x = random.randint(-intensity, intensity)
         offset_y = random.randint(-intensity, intensity)
+        shake_frames -= 1
+    elif shake_frames > 0:
+        # If screen shake is disabled, just decrement frames without applying offset
         shake_frames -= 1
 
     # Skip regular blit if we are in wave-transition zoom mode
@@ -1389,6 +1417,8 @@ while running:
         tutorial_overlay.draw(screen)
         # Draw pause menu on top of everything else
         pause_menu.draw(screen)
+        # Draw options menu on top of everything else
+        options_menu.draw(screen)
         # Draw store on top of everything else
         store.draw(screen)
         pygame.display.flip()
@@ -1637,6 +1667,9 @@ while running:
             BACKGROUND = generate_grass(WIDTH, HEIGHT)
         else:
             tutorial_overlay.active = False
+        
+        # Re-apply options settings after restart
+        options_menu._apply_settings()
         # Continue the main loop after restart
         continue
 
@@ -1697,6 +1730,7 @@ while running:
         if st == 'focus':
             tutorial_overlay.draw(screen)
             pause_menu.draw(screen)
+            options_menu.draw(screen)
             store.draw(screen)
 
         pygame.display.flip()
