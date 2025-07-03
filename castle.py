@@ -21,7 +21,7 @@ DAMAGE_ATTRACT_TIME = 4000  # ms – cannons flock toward recent breaches
 # Maximum number of persistent debris pieces allowed before oldest ones begin fading out
 MAX_DEBRIS_COUNT = 1000  # tuned to keep performance reasonable
 
-MAX_CANNONS = 4  # overall upper-limit of simultaneously active cannons
+MAX_CANNONS = 8  # updated overall upper-limit of simultaneously active cannons
 # Reduce slide speed so cannons don't race around the perimeter. Roughly 50 % of the previous value.
 CANNON_SLIDE_SPEED = 0.18  # px / ms – tuned for readable but still threatening movement
 
@@ -69,8 +69,10 @@ def _prepare_shot_sounds():
 
         _SHOT_SOUNDS = {
             'normal': base,
-            'low': _pitch_shift(base, 1.07),   # ≈ –1 semitone
-            'high': _pitch_shift(base, 0.93)   # ≈ +1 semitone
+            '0.1': _pitch_shift(base, 0.1),   # extremely low pitch
+            '0.5': _pitch_shift(base, 0.5),   # low pitch
+            '0.85': _pitch_shift(base, 0.85),   # high pitch (now 0.85)
+            '1.9': _pitch_shift(base, 1.9),   # very high pitch
         }
         print('[Audio] Cannon shot sounds loaded')
     except pygame.error as e:
@@ -97,13 +99,17 @@ class Castle:
     def _max_cannons_for_wave(level: int) -> int:
         """Return the allowed cannon count for the given *level* / wave."""
         if level <= 2:
-            return 2
+            return 3  # Waves 1-2
         elif level <= 4:
-            return 3
+            return 4  # Waves 3-4
         elif level <= 6:
-            return 4
+            return 5  # Waves 5-6
+        elif level <= 8:
+            return 6  # Waves 7-8
+        elif level == 9:
+            return 7  # Wave 9
         else:
-            return 5
+            return 8  # Wave 10 and beyond
 
     def __init__(self, level=1, max_dim=None):
         self.level = level
@@ -513,7 +519,6 @@ class Castle:
                         self.block_cracks[key] = create_crack_animator(block)
                     self.block_cracks[key].add_crack(impact_point, impact_angle, debug=False)
 
-                        # If still alive after hit, exit early
             if self.block_health[key] > 0:
                 return  # Not destroyed yet
 
@@ -522,11 +527,12 @@ class Castle:
             # ----------------------------------------------
             try:
                 from heart import maybe_spawn_hearts
-                print("[HEART] Attempting spawn on block destroy (hit_block)")
+                # print("[HEART] Attempting spawn on block destroy (hit_block)")
                 maybe_spawn_hearts(block)
-                print("[HEART] Spawn call completed (hit_block)")
+                # print("[HEART] Spawn call completed (hit_block)")
             except Exception as e:
-                print("[HEART] Spawn error:", e)
+                # print("[HEART] Spawn error:", e)
+                pass
 
             # ----------------------------------------------
             #  Coin drop on final destruction (hit_block)
@@ -791,11 +797,12 @@ class Castle:
         if will_destroy:
             try:
                 from heart import maybe_spawn_hearts
-                print("[HEART] Attempting spawn on block destroy")
+                # print("[HEART] Attempting spawn on block destroy")
                 maybe_spawn_hearts(block)
-                print("[HEART] Spawn call completed")
+                # print("[HEART] Spawn call completed")
             except Exception as e:
-                print("[HEART] Spawn error:", e)
+                # print("[HEART] Spawn error:", e)
+                pass
 
             # --------------------------------------------------------------
             #  Coin drop on block destruction
@@ -1064,7 +1071,7 @@ class Castle:
         # Place blocks according to mask
         print("[DEBUG] New wave mask:")
         for row in mask:
-            print(' '.join(str(int(v)) for v in row))
+            print("[DEBUG]", ' '.join(str(int(v)) for v in row))
         print("[DEBUG] Block colors and healths:")
         for y in range(height):
             for x in range(width):
@@ -1081,7 +1088,7 @@ class Castle:
                     self.block_tiers[key] = val
                     self.set_block_color_by_strength(key, val)
                     self.block_shapes[key] = 'wall'
-                    print(f"  ({x},{y}) tier={val} color={self.block_colors[key]} health={self.block_health.get(key, 2)}")
+                    print(f"[DEBUG]   ({x},{y}) tier={val} color={self.block_colors[key]} health={self.block_health.get(key, 2)}")
         print(f"[DEBUG] from_mask: mask wall tiles={wall_count}, blocks created={len(self.blocks)}")
         # Optionally handle floor/grass for future expansion
         # elif mask[y, x] == 3: ...

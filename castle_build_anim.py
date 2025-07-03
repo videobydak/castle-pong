@@ -65,7 +65,7 @@ def staged_castle_build(castle, mask, size, level, build_callback=None):
     # One-time debug print for build anim path
     print("[DEBUG] New wave mask (build anim):")
     for row in mask:
-        print(' '.join(str(int(v)) for v in row))
+        print("[DEBUG]", ' '.join(str(int(v)) for v in row))
     print("[DEBUG] Block colors and healths (build anim):")
     for y in range(height):
         for x in range(width):
@@ -82,7 +82,7 @@ def staged_castle_build(castle, mask, size, level, build_callback=None):
                     color = BLOCK_COLOR_L3
                 else:
                     color = BLOCK_COLOR_DEFAULT
-                print(f"  ({x},{y}) tier={val} color={color} health={health}")
+                print(f"[DEBUG]   ({x},{y}) tier={val} color={color} health={health}")
 
     # --------------------------------------------------
     # Enumerate all wall bricks from the mask

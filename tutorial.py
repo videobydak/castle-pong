@@ -17,6 +17,7 @@ class TutorialOverlay:
         self.loading: bool = False  # New loading state
         self.loading_angle: float = 0.0  # For spinning loader
         self.loading_start_time: int = 0  # When loading started
+        self.selected_index: int = 0  # Track which button is selected for keyboard nav
 
         # -------------------------------------------------------------
         # Background music – loop dedicated menu track
@@ -95,12 +96,30 @@ class TutorialOverlay:
             # Don't process button clicks while loading
             print(f"[DEBUG] Loading... angle={self.loading_angle:.1f}")
             return
-            
+        
+        # Keyboard navigation
+        key_nav = False
+        for e in events:
+            if e.type == pygame.KEYDOWN:
+                if e.key == pygame.K_UP:
+                    self.selected_index = (self.selected_index - 1) % len(self.buttons)
+                    key_nav = True
+                elif e.key == pygame.K_DOWN:
+                    self.selected_index = (self.selected_index + 1) % len(self.buttons)
+                    key_nav = True
+                elif e.key == pygame.K_SPACE:
+                    self.buttons[self.selected_index]["callback"]()
+                    key_nav = True
+        
         mouse = pygame.mouse.get_pos()
         click = any(e.type == pygame.MOUSEBUTTONDOWN and e.button == 1 for e in events)
-        for btn in self.buttons:
-            btn['hover'] = btn['box_rect'].collidepoint(mouse)
-            if btn['hover'] and click:
+        for i, btn in enumerate(self.buttons):
+            # If keyboard nav was used, only highlight selected_index
+            if key_nav:
+                btn['hover'] = (i == self.selected_index)
+            else:
+                btn['hover'] = btn['box_rect'].collidepoint(mouse)
+            if btn['hover'] and click and not self.loading:
                 btn['callback']()
 
         # ---------------------------------------------------------
@@ -130,9 +149,9 @@ class TutorialOverlay:
         self._draw_title(surface)
 
         # Buttons ------------------------------------------------------
-        for btn in self.buttons:
+        for i, btn in enumerate(self.buttons):
             box   = btn['box_rect']
-            hover = btn['hover']
+            hover = btn['hover'] or (i == self.selected_index)
             
             # Grey out buttons during loading
             if self.loading:
@@ -143,11 +162,14 @@ class TutorialOverlay:
                 base_col = (60, 60, 60)
                 hover_col = (110, 110, 110)
                 text_col = WHITE
-                
+            
             # Background fill
             pygame.draw.rect(surface, hover_col if (hover and not self.loading) else base_col, box)
             # Border (2-pixel) with light top/left and dark bottom/right for depth
             pygame.draw.rect(surface, (0, 0, 0), box, 2)
+            # Extra border for selected (keyboard) button
+            if not self.loading and i == self.selected_index:
+                pygame.draw.rect(surface, YELLOW, box, 4)
             # Bevel effect (only if not loading)
             if not self.loading:
                 pygame.draw.line(surface, (200, 200, 200), box.topleft, (box.topright[0]-1, box.topright[1]))
@@ -170,19 +192,17 @@ class TutorialOverlay:
                 center_x, center_y = box.center
                 radius = 15
                 # Draw spinning circle segments with solid colors
-                for i in range(8):
-                    angle = math.radians(self.loading_angle + i * 45)
+                for j in range(8):
+                    angle = math.radians(self.loading_angle + j * 45)
                     # Use different shades instead of alpha
-                    brightness = 255 - (i * 25)
+                    brightness = 255 - (j * 25)
                     if brightness < 100:
                         brightness = 100
                     color = (brightness, brightness, 0)  # Yellow gradient
-                    
                     start_x = int(center_x + math.cos(angle) * (radius - 5))
                     start_y = int(center_y + math.sin(angle) * (radius - 5))
                     end_x = int(center_x + math.cos(angle) * radius)
                     end_y = int(center_y + math.sin(angle) * radius)
-                    
                     pygame.draw.line(surface, color, (start_x, start_y), (end_x, end_y), 3)
 
     # ------------------------------------------------------------------
