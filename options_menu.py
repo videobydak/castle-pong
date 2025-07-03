@@ -166,8 +166,14 @@ class OptionsMenu:
                     if sound:  # Check if sound loaded successfully
                         sound.set_volume(sfx_vol)
             
+            # Apply to coin sounds specifically
+            if 'coin' in sys.modules:
+                coin_module = sys.modules['coin']
+                if hasattr(coin_module, 'update_coin_volumes'):
+                    coin_module.update_coin_volumes()
+            
             # Also apply to any other sound objects in various modules
-            modules_to_check = ['coin', 'heart', 'store', 'paddle_intro']
+            modules_to_check = ['heart', 'store', 'paddle_intro']
             for module_name in modules_to_check:
                 if module_name in sys.modules:
                     module = sys.modules[module_name]
@@ -183,27 +189,35 @@ class OptionsMenu:
     def update(self, events):
         """Handle input events for the options menu."""
         if not self.active:
-            return
+            return False
         
         mouse_pos = pygame.mouse.get_pos()
         mouse_clicked = False
         mouse_released = False
+        consumed_event = False
         
         for event in events:
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 mouse_clicked = True
                 self.mouse_held = True
+                consumed_event = True  # Consume all mouse clicks when active
             elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
                 mouse_released = True
                 self.mouse_held = False
                 self.dragging_slider = None
+                consumed_event = True  # Consume all mouse releases when active
             elif event.type == pygame.KEYDOWN:
+                consumed_event = True  # Consume all key presses when active
                 if event.key == pygame.K_ESCAPE:
                     self.close_options()
                 elif event.key == pygame.K_UP:
                     self.selected_option = (self.selected_option - 1) % (len(self.options) + 1)
                 elif event.key == pygame.K_DOWN:
                     self.selected_option = (self.selected_option + 1) % (len(self.options) + 1)
+                elif event.key == pygame.K_LEFT:
+                    self._handle_left_arrow()
+                elif event.key == pygame.K_RIGHT:
+                    self._handle_right_arrow()
                 elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
                     self._activate_selected()
         
@@ -217,6 +231,8 @@ class OptionsMenu:
         
         # Update hover states
         self._update_hover_states(mouse_pos)
+        
+        return consumed_event
     
     def _handle_mouse_click(self, mouse_pos):
         """Handle mouse click events."""
@@ -251,6 +267,36 @@ class OptionsMenu:
         self.settings[option['key']] = new_value
         self._apply_settings()
     
+    def _handle_left_arrow(self):
+        """Handle left arrow key - decrease slider values or toggle switches."""
+        if self.selected_option < len(self.options):
+            option = self.options[self.selected_option]
+            if option['type'] == 'slider':
+                # Decrease slider value by 5%
+                current_value = self.settings[option['key']]
+                new_value = max(0.0, current_value - 0.05)
+                self.settings[option['key']] = new_value
+                self._apply_settings()
+            elif option['type'] == 'toggle':
+                # Toggle the switch
+                self.settings[option['key']] = not self.settings[option['key']]
+                self._apply_settings()
+
+    def _handle_right_arrow(self):
+        """Handle right arrow key - increase slider values or toggle switches."""
+        if self.selected_option < len(self.options):
+            option = self.options[self.selected_option]
+            if option['type'] == 'slider':
+                # Increase slider value by 5%
+                current_value = self.settings[option['key']]
+                new_value = min(1.0, current_value + 0.05)
+                self.settings[option['key']] = new_value
+                self._apply_settings()
+            elif option['type'] == 'toggle':
+                # Toggle the switch
+                self.settings[option['key']] = not self.settings[option['key']]
+                self._apply_settings()
+
     def _activate_selected(self):
         """Activate the currently selected option with keyboard."""
         if self.selected_option == len(self.options):  # Back button
@@ -328,24 +374,51 @@ class OptionsMenu:
         surface.blit(percent_surf, percent_rect)
     
     def _draw_toggle(self, surface, option, selected):
-        """Draw a toggle button."""
+        """Draw a toggle button as two separate ON/OFF buttons."""
         toggle_rect = option['rect']
         value = self.settings[option['key']]
         
-        # Colors
-        bg_color = (110, 110, 110) if selected else (60, 60, 60)
-        border_color = YELLOW if selected else (0, 0, 0)
-        text_color = YELLOW if selected else WHITE
+        # Split the rect into two halves for ON and OFF
+        button_width = toggle_rect.width // 2
+        on_rect = pygame.Rect(toggle_rect.left, toggle_rect.top, button_width, toggle_rect.height)
+        off_rect = pygame.Rect(toggle_rect.left + button_width, toggle_rect.top, button_width, toggle_rect.height)
         
-        # Draw toggle background
-        pygame.draw.rect(surface, bg_color, toggle_rect)
-        pygame.draw.rect(surface, border_color, toggle_rect, 2)
+        # Colors for ON button
+        if value:  # ON is active
+            on_bg_color = YELLOW if selected else (80, 200, 80)  # Green when ON
+            on_border_color = (255, 255, 255) if selected else (0, 0, 0)
+            on_text_color = (0, 0, 0) if selected else WHITE
+        else:  # ON is inactive
+            on_bg_color = (110, 110, 110) if selected else (40, 40, 40)
+            on_border_color = YELLOW if selected else (80, 80, 80)
+            on_text_color = YELLOW if selected else (120, 120, 120)
         
-        # Draw toggle text
-        toggle_text = "ON" if value else "OFF"
-        text_surf = self._render_outline(toggle_text, self.btn_font, text_color, (0, 0, 0), 1)
-        text_rect = text_surf.get_rect(center=toggle_rect.center)
-        surface.blit(text_surf, text_rect)
+        # Colors for OFF button
+        if not value:  # OFF is active
+            off_bg_color = YELLOW if selected else (200, 80, 80)  # Red when OFF
+            off_border_color = (255, 255, 255) if selected else (0, 0, 0)
+            off_text_color = (0, 0, 0) if selected else WHITE
+        else:  # OFF is inactive
+            off_bg_color = (110, 110, 110) if selected else (40, 40, 40)
+            off_border_color = YELLOW if selected else (80, 80, 80)
+            off_text_color = YELLOW if selected else (120, 120, 120)
+        
+        # Draw ON button
+        pygame.draw.rect(surface, on_bg_color, on_rect)
+        pygame.draw.rect(surface, on_border_color, on_rect, 2)
+        
+        # Draw OFF button
+        pygame.draw.rect(surface, off_bg_color, off_rect)
+        pygame.draw.rect(surface, off_border_color, off_rect, 2)
+        
+        # Draw text on buttons
+        on_text_surf = self._render_outline("ON", self.btn_font, on_text_color, (0, 0, 0), 1)
+        on_text_rect = on_text_surf.get_rect(center=on_rect.center)
+        surface.blit(on_text_surf, on_text_rect)
+        
+        off_text_surf = self._render_outline("OFF", self.btn_font, off_text_color, (0, 0, 0), 1)
+        off_text_rect = off_text_surf.get_rect(center=off_rect.center)
+        surface.blit(off_text_surf, off_text_rect)
     
     def _draw_back_button(self, surface):
         """Draw the back button."""
