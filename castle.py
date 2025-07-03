@@ -1011,10 +1011,11 @@ class Castle:
         self.damage_events.append({'rail_id': rail_id, 'idx': idx, 'time': pygame.time.get_ticks()})
 
     # --------------------------------------------------------------
-    #  Aggression helper – returns 0..1 ramping by 0.05 per shot
+    #  Aggression helper – returns 0..1 ramping by 1/30 per shot (cap at 30 shots).
     # --------------------------------------------------------------
     def _shot_scale(self):
-        return min(1.0, Castle.total_shots * 0.025)
+        """Aggression helper – returns 0..1 ramping by 1/30 per shot (cap at 30 shots)."""
+        return min(1.0, Castle.total_shots * (1/30))
 
     @classmethod
     def from_mask(cls, mask, block_size=None, level=1, staged_build=False, build_callback=None):

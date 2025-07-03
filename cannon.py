@@ -114,9 +114,8 @@ class Cannon:
         self.move_spin_speed_base   = 720  # deg/s peak spin rate
 
     def _shot_scale(self):
-        """Aggression helper – returns 0..1 based on total shots."""
-        # This now uses the passed-in reference to get total_shots from Castle
-        return min(1.0, self.total_shots_ref() * 0.025)
+        """Aggression helper – returns 0..1 based on total shots (cap at 30 shots)."""
+        return min(1.0, self.total_shots_ref() * (1/30))
 
     def draw(self, screen, now, preview_types, _preview_col_map):
         if self.sprout_scale <= 0.01 and self.state != 'moving_anim':
