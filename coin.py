@@ -23,6 +23,25 @@ _COIN_SOUND = None
 # Coin multiplier (can be enhanced by store upgrades)
 _coin_multiplier = 1.0
 
+# -----------------------------------------------------------------------------
+# Combo collection state (progressive pitch + bonus)
+# -----------------------------------------------------------------------------
+_COMBO_WINDOW_MS = 2000  # 2-second window
+_combo_active      = False
+_combo_last_time   = 0        # pygame time of last coin picked up
+_combo_count       = 0        # number of coins in current combo
+_combo_value_sum   = 0        # raw coin value in combo
+_combo_fade_timer  = 0        # ms remaining for fade-out animation
+_COMBO_FADE_MS     = 800
+
+# Audio – metallic clink SFX with pitch cache
+_CLINK_BASE: Optional[pygame.mixer.Sound] = None
+_CLINK_CACHE: Dict[float, pygame.mixer.Sound] = {}
+
+# Preload font for combo popup
+pygame.font.init()
+_COMBO_FONT = pygame.font.SysFont(None, int(32 * SCALE), bold=True)
+
 
 class _Coin:
     """A collectible coin that spawns from destroyed castle blocks."""
@@ -35,10 +54,11 @@ class _Coin:
         self.vel = pygame.Vector2(vel)
         self.resting = False  # once velocity is near zero the coin rests
         self.life_ms = 20000  # disappear after 20 s if not collected
-        self.size_px = int(14 * SCALE)  # visual size of sprite
+        self.size_px = int(14 * 1.8 * SCALE)  # visual size scaled up by 2.3×
         self.collect_delay = 300  # ms before the coin can be collected
         self.value = value  # how many coins this represents
-        self.anim_timer = 0  # for rotation animation
+        # Start each coin at a random frame so groups feel more dynamic
+        self.anim_timer = random.randint(0, 700)  # 0-700 ms offset (8 frames → 800 ms loop)
         self.bob_timer = random.uniform(0, 2 * math.pi)  # random phase for bobbing
         
         # Magnetism effect (can be enabled by store upgrades)
@@ -187,42 +207,30 @@ class _Coin:
 # -----------------------------------------------------------------------------
 
 def maybe_spawn_coins(block_rect: pygame.Rect):
-    """Spawn coins when *block_rect* is destroyed.
-    
-    10% chance to spawn coins:
-    - 20% chance for 2 coins
-    - 10% chance for 3 coins  
-    - 70% chance for 1 coin (remaining percentage)
+    """Spawn between 1-10 coins every time *block_rect* is destroyed.
+
+    The exact number is random but always at least one coin.  A wave's coin
+    multiplier (from store upgrades) is applied then the result is clamped to
+    1-10 coins so drops never get out of hand.
     """
     global _coin_multiplier
-    
-    # 10% base chance to spawn coins
-    if random.random() >= 0.10:
-        return  # no coins this time
-    
-    # Determine coin count
-    coin_roll = random.random()
-    if coin_roll < 0.20:  # 20% chance
-        count = 2
-    elif coin_roll < 0.30:  # 10% chance (20% + 10%)
-        count = 3
-    else:  # 70% chance (remaining)
-        count = 1
-    
-    # Apply coin multiplier from upgrades
-    actual_count = int(count * _coin_multiplier)
-    if actual_count < 1:
-        actual_count = 1
-    
+
+    # Base random count, 1-10 inclusive
+    base_count = random.randint(1, 10)
+
+    # Apply multiplier then clamp
+    actual_count = max(1, min(10, int(base_count * _coin_multiplier)))
+
     for i in range(actual_count):
+        # More explosive launch: faster speed range
         angle = random.uniform(0, 360)
-        speed = random.uniform(3.0, 6.0) * SCALE
+        speed = random.uniform(6.0, 12.0) * SCALE  # double previous speed
         vel = pygame.Vector2(speed, 0).rotate(angle)
-        
+
         # Slight variation in spawn position for multiple coins
-        offset_x = random.uniform(-5, 5) if actual_count > 1 else 0
-        offset_y = random.uniform(-5, 5) if actual_count > 1 else 0
-        
+        offset_x = random.uniform(-8, 8) if actual_count > 1 else 0
+        offset_y = random.uniform(-8, 8) if actual_count > 1 else 0
+
         coin = _Coin(block_rect.centerx + offset_x, block_rect.centery + offset_y, vel)
         _active_coins.append(coin)
 
@@ -250,16 +258,40 @@ def update_coins(dt_frames: float, dt_ms: int, balls: list):
                     break
         
         if collected:
-            # Add coins to total
-            _total_coins += coin.value
-            _play_coin_sound()
+            # --- Combo handling ---
+            now = pygame.time.get_ticks()
+            global _combo_active, _combo_last_time, _combo_count, _combo_value_sum, _combo_fade_timer
+
+            # If window expired, cash out previous combo first
+            if _combo_active and now - _combo_last_time > _COMBO_WINDOW_MS:
+                _commit_combo()
+
+            if not _combo_active:
+                # start new combo
+                _combo_active = True
+                _combo_count = 0
+                _combo_value_sum = 0
+                _combo_fade_timer = 0
+
+            _combo_last_time = now
+            _combo_count += 1
+            _combo_value_sum += coin.value
+
+            # Play clink with progressive pitch (index = combo_count-1)
+            _play_clink(_combo_count - 1)
             _active_coins.remove(coin)
+
+    # Handle combo window expiration & fade timer
+    _update_combo_timers(dt_ms)
 
 
 def draw_coins(screen: pygame.Surface):
     """Render all coins onto *screen*."""
     for coin in _active_coins:
         coin.draw(screen)
+
+    # Draw combo tally overlay
+    _draw_combo(screen)
 
 
 def get_coin_count() -> int:
@@ -310,6 +342,85 @@ def _play_coin_sound():
             _COIN_SOUND = False  # mark as unusable
     if _COIN_SOUND:
         _COIN_SOUND.play()
+
+
+def _pitch_shift(sound: pygame.mixer.Sound, factor: float) -> pygame.mixer.Sound:
+    """Return a new pygame Sound pitched by *factor*. Cached for reuse."""
+    if factor in _CLINK_CACHE:
+        return _CLINK_CACHE[factor]
+    import numpy as np
+    arr = pygame.sndarray.array(sound)
+    orig_len = arr.shape[0]
+    new_len = max(1, int(orig_len / factor))
+    idx = np.linspace(0, orig_len - 1, new_len).astype(np.int32)
+    shifted = arr[idx]
+    snd = pygame.sndarray.make_sound(shifted.copy())
+    snd.set_volume(sound.get_volume())
+    _CLINK_CACHE[factor] = snd
+    return snd
+
+
+def _play_clink(combo_index: int):
+    """Play metallic clink pitched up by 2 semitones per *combo_index* (0-based)."""
+    global _CLINK_BASE
+    if _CLINK_BASE is None:
+        try:
+            _CLINK_BASE = pygame.mixer.Sound("SoundCrib - Game Coin Collector - Metallic Clink 02.wav")
+            _CLINK_BASE.set_volume(0.8)
+        except pygame.error as e:
+            print("[Audio] Failed to load Metallic Clink:", e)
+            _CLINK_BASE = False
+    if not _CLINK_BASE:
+        return
+
+    semitones = combo_index * 2  # 0,2,4,6…
+    factor = pow(2, semitones / 12.0)
+    snd = _pitch_shift(_CLINK_BASE, factor)
+    if snd:
+        snd.play()
+
+
+def _update_combo_timers(dt_ms: int):
+    """Advance combo timers, commit or fade when necessary."""
+    global _combo_active, _combo_last_time, _combo_fade_timer
+    if _combo_active:
+        if pygame.time.get_ticks() - _combo_last_time > _COMBO_WINDOW_MS:
+            # Window ended – commit coins and start fade-out
+            _commit_combo()
+    elif _combo_fade_timer > 0:
+        _combo_fade_timer = max(0, _combo_fade_timer - dt_ms)
+
+
+def _commit_combo():
+    """Add combo coins with bonus to player's balance and start fade-out animation."""
+    global _combo_active, _combo_count, _combo_value_sum, _combo_fade_timer, _total_coins
+    if _combo_count == 0:
+        _combo_active = False
+        return
+    bonus_mult = 1.0 + 0.1 * _combo_count  # +0.1 per coin
+    earned = int(_combo_value_sum * bonus_mult)
+    _total_coins += earned
+
+    # Start fade-out text
+    _combo_fade_timer = _COMBO_FADE_MS
+    _combo_active = False
+
+
+def _draw_combo(screen: pygame.Surface):
+    """Draw combo tally text if active/fading."""
+    if not (_combo_active or _combo_fade_timer > 0):
+        return
+
+    # Compose text
+    coins_txt = f"+{_combo_value_sum} x{1.0 + 0.1 * _combo_count:.1f}"
+    surf = _COMBO_FONT.render(coins_txt, True, (255, 255, 0))
+
+    # Handle fade alpha
+    if not _combo_active:
+        alpha = int(255 * (_combo_fade_timer / _COMBO_FADE_MS))
+        surf.set_alpha(alpha)
+    rect = surf.get_rect(center=(WIDTH // 2, HEIGHT // 4))
+    screen.blit(surf, rect)
 
 
 if __name__ == "__main__":

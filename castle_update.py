@@ -443,8 +443,17 @@ def update_castle(castle, dt_ms, player_score=0, paddles=None, player_wall=None,
                 # Decide to shoot or move ---------------------------------
                 prog = castle._shot_scale()  # 0..1 based on shots fired
 
+                # --- Restrict movement for 1 or 2 cannons as per rules ---
+                num_cannons = len(castle.cannons)
+                num_balls = len(balls) if balls is not None else 0
+                allow_move = True
+                if num_cannons == 1:
+                    allow_move = False
+                elif num_cannons == 2 and num_balls == 0:
+                    allow_move = False
+
                 # --- Relocate? (5 % chance) ---
-                if random.random() < 0.05:
+                if allow_move and random.random() < 0.05:
                     castle._assign_new_target(c, paddle_sides, dest_idx=None, player_wall=player_wall)
                     c.last_action_time = now
                     # brief pause before next decision once we arrive

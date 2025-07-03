@@ -224,10 +224,13 @@ class Cannon:
         # Play appropriate shot SFX
         _prepare_shot_sounds()
         if _SHOT_SOUNDS:
+            import random
+            # Ensure all required pitches exist in _SHOT_SOUNDS
+            # (This is safe to call repeatedly; _prepare_shot_sounds will only build once)
             if shot_type == 'red':
-                _sfx = _SHOT_SOUNDS.get('low') or _SHOT_SOUNDS.get('normal')
+                _sfx = _SHOT_SOUNDS.get('0.1') or _SHOT_SOUNDS.get('normal')
             elif shot_type == 'power':
-                _sfx = _SHOT_SOUNDS.get('high') or _SHOT_SOUNDS.get('normal')
+                _sfx = _SHOT_SOUNDS.get('1.9') or _SHOT_SOUNDS.get('normal')
             else:
                 _sfx = _SHOT_SOUNDS.get('normal')
             if _sfx:
@@ -238,6 +241,11 @@ class Cannon:
         start_pos = self.pos + direction * (config.CANNON_LEN + 8)
 
         vx, vy = direction.x * config.BALL_SPEED, direction.y * config.BALL_SPEED
+
+        # Clamp speed for regular (white) cannonballs
+        if shot_type == 'white':
+            speed_mult = random.uniform(0.85, 1.25)
+            vx, vy = direction.x * config.BALL_SPEED * speed_mult, direction.y * config.BALL_SPEED * speed_mult
 
         # Give the projectile some initial spin, but clamp to a small value
         max_spin = 0.5  # radians per frame (tune as needed)

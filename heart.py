@@ -138,7 +138,7 @@ def maybe_spawn_hearts(block_rect: pygame.Rect):
         angle = random.uniform(0, 360)
         speed = random.uniform(2.5, 5.0) * SCALE
         vel = pygame.Vector2(speed, 0).rotate(angle)
-        print(f"[HEART] Spawning heart at ({block_rect.centerx}, {block_rect.centery}) with vel {vel}")
+        # print(f"[HEART] Spawning heart at ({block_rect.centerx}, {block_rect.centery}) with vel {vel}")
         _active_hearts.append(_Heart(block_rect.centerx, block_rect.centery, vel))
 
 
@@ -190,8 +190,8 @@ def update_hearts(dt_frames: float, dt_ms: int, balls: list, paddles: Dict[str, 
 def draw_hearts(screen: pygame.Surface):
     """Render all hearts onto *screen*."""
     # Debug: print count once per frame when hearts exist
-    if _active_hearts:
-        print(f"[HEART] Drawing {_active_hearts.__len__()} hearts")
+    # if _active_hearts:
+    #     print(f"[HEART] Drawing {{_active_hearts.__len__()}} hearts")
     for heart in _active_hearts:
         heart.draw(screen)
 

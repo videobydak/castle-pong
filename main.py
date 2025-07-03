@@ -205,7 +205,7 @@ castle_dim_y  = 5               # starting footprint height (blocks)
 # --- Wave transition state ---
 wave_transition = {
     'active': False,
-    'state': 'idle',      # idle → approach → focus → resume
+    'state': 'idle',      # idle → approach → pre_store_delay → fade_to_store → store_fade_in → focus → store_fade_out → resume_fade_in → resume
     'timer': 0,
     'block_pos': None,
     # --- tunables ---
@@ -214,9 +214,16 @@ wave_transition = {
     'duration_approach': 800,  # ms – zoom in & slow down
     'duration_focus': 0,       # ms – stay at max zoom/slomo (no extra hold)
     'duration_resume': 2000,   # ms – zoom out & speed up (2 s)
+    'duration_pre_store_delay': 1500, # ms – slow-mo after last block
+    'duration_fade_to_store': 700,    # ms – fade to black before store
+    'duration_store_fade_in': 700,    # ms – fade in store
+    'duration_store_fade_out': 700,   # ms – fade out store
+    'duration_resume_fade_in': 700,   # ms – fade in after store
     'next_wave_ready': False,
     'closeness': 0.0,    # smoothed proximity ratio during approach
     'no_close': 0,       # ms accumulated with no nearby balls
+    'fade_alpha': 0,     # for fade transitions
+    'store_opened': False,  # Track if store has been opened for this transition
 }
 
 def get_wave_difficulty(wave):
@@ -235,14 +242,8 @@ def get_wave_mask_size(wave):
 def create_castle_for_wave(wave):
     mask_w, mask_h = get_wave_mask_size(wave)
     # --- Dynamic cannon scaling by wave ---
-    if wave <= 2:
-        max_cannons = 2
-    elif wave <= 4:
-        max_cannons = 3
-    elif wave <= 6:
-        max_cannons = 4
-    else:
-        max_cannons = 5
+    # Use unified logic from Castle to avoid duplication.
+    max_cannons = Castle._max_cannons_for_wave(wave)
     # Apply to the Castle class so subsequent construction uses the wave limit
     Castle.MAX_CANNONS = max_cannons
     # Also update the module-level constant so internal castle logic uses it
@@ -252,7 +253,8 @@ def create_castle_for_wave(wave):
     min_blocks = 4 if wave == 1 else 6
     mask = generate_mask_for_difficulty(mask_w, mask_h, get_wave_difficulty(wave), min_wall_blocks=min_blocks)
     print(f"[DEBUG] mask for wave {wave} (unique values): {set(mask.flatten())}")
-    print(mask)
+    if DEBUG:
+        print(mask)
     castle = Castle.from_mask(
         mask,
         block_size=BLOCK_SIZE,
@@ -389,6 +391,9 @@ except pygame.error as e:
     print(f'[Audio] Failed to load sound effects: {e}')
     sounds = {}
 
+# --- Track last played wave music to avoid repeats ---
+last_wave_music = None
+
 while running:
     ms = clock.tick(FPS)
 
@@ -431,6 +436,31 @@ while running:
     elif hasattr(castle, '_pre_intro_shoot'):
         castle.shooting_enabled = castle._pre_intro_shoot
         delattr(castle, '_pre_intro_shoot')
+
+    # -------------------------------------------------------------
+    # NEW: Temporarily disable cannon shooting while game is paused
+    # -------------------------------------------------------------
+    if pause_menu.active:
+        if not hasattr(castle, '_pre_pause_shoot'):
+            # Remember current state so we can restore later
+            castle._pre_pause_shoot = castle.shooting_enabled
+        castle.shooting_enabled = False
+    elif hasattr(castle, '_pre_pause_shoot'):
+        # Restore previous shooting state when unpaused
+        castle.shooting_enabled = castle._pre_pause_shoot
+        delattr(castle, '_pre_pause_shoot')
+
+    # -------------------------------------------------------------
+    # NEW: Temporarily disable cannon shooting while the store is open
+    # -------------------------------------------------------------
+    if store.active:
+        if not hasattr(castle, '_pre_store_shoot'):
+            castle._pre_store_shoot = castle.shooting_enabled
+        castle.shooting_enabled = False
+    elif hasattr(castle, '_pre_store_shoot'):
+        castle.shooting_enabled = castle._pre_store_shoot
+        delattr(castle, '_pre_store_shoot')
+
     # Inform castle update logic whether rebuild progress should be paused
     castle._pause_rebuild = intro_active
     paused = intro_active or tutorial_overlay.active or pause_menu.active
@@ -448,7 +478,8 @@ while running:
 
     dt = ms_game / (1000/60)
     now = pygame.time.get_ticks()
-    if wave_transition['state'] in ('approach','focus','resume'):
+    # Always increment timer for any active transition state except 'idle'
+    if wave_transition['state'] != 'idle':
         wave_transition['timer'] += ms
 
     # --- Enable shooting after tutorial overlay is dismissed ---
@@ -1397,54 +1428,80 @@ while running:
         else:
             wave_transition['no_close'] = 0
 
-    # 2) Switch to FOCUS the moment the last block is destroyed
+    # 2) Switch to PRE_STORE_DELAY the moment the last block is destroyed
     if len(castle.blocks) == 0 and wave_transition['state'] == 'approach':
         wave_transition.update({
-            'state': 'focus',
-            'timer': 0,
-        })
-        # Open the store at the end of each wave
-        store.open_store(wave)
-
-    # 3) After FOCUS duration, build next wave (if ready) and start RESUME zoom-out
-    # Only proceed if store is closed (wait for player to finish shopping)
-    if wave_transition['state'] == 'focus' and wave_transition['timer'] >= wave_transition['duration_focus'] and not store.active:
-        # Begin RESUME phase – keep current scene; new wave assets are prepared above
-        # Ensure next castle & music are generated in the background exactly once
-        if wave_transition.get('next_castle') is None:
-            next_wave = wave + 1
-            next_mask_w, next_mask_h = get_wave_mask_size(next_wave)
-            min_blocks = 4 if next_wave == 1 else 6
-            next_castle, next_mask = create_castle_for_wave(next_wave)
-            chosen_music = MUSIC_PATH
-            if next_wave >= 2 and WAVE_MUSIC_FILES:
-                import random
-                chosen_music = random.choice(WAVE_MUSIC_FILES)
-            wave_transition['next_castle'] = next_castle
-            wave_transition['next_music'] = chosen_music
-
-        wave_transition.update({
-            'state': 'resume',
+            'state': 'pre_store_delay',
             'timer': 0,
         })
 
-    # 4) Finish transition when resume done
+    # 3) Wait in slow-mo for a moment before fade
+    if wave_transition['state'] == 'pre_store_delay':
+        if wave_transition['timer'] >= wave_transition['duration_pre_store_delay']:
+            wave_transition.update({'state': 'fade_to_store', 'timer': 0})
+
+    # 4) Fade to black before store
+    if wave_transition['state'] == 'fade_to_store':
+        alpha = min(255, int(255 * wave_transition['timer'] / wave_transition['duration_fade_to_store']))
+        wave_transition['fade_alpha'] = alpha
+        if wave_transition['timer'] >= wave_transition['duration_fade_to_store']:
+            wave_transition.update({'state': 'store_fade_in', 'timer': 0, 'fade_alpha': 255})
+            wave_transition['store_opened'] = False  # Reset before store_fade_in
+
+    # 5) Fade in the store (from black)
+    if wave_transition['state'] == 'store_fade_in':
+        # Open the store exactly once at the start of this state
+        if not wave_transition.get('store_opened', False):
+            store.open_store(wave)
+            wave_transition['store_opened'] = True
+        alpha = max(0, 255 - int(255 * wave_transition['timer'] / wave_transition['duration_store_fade_in']))
+        wave_transition['fade_alpha'] = alpha
+        if wave_transition['timer'] >= wave_transition['duration_store_fade_in']:
+            wave_transition.update({'state': 'focus', 'timer': 0, 'fade_alpha': 0, 'store_opened': False})
+
+    # 6) When store closes, start fade out
+    if wave_transition['state'] == 'focus' and not store.active:
+        wave_transition.update({'state': 'store_fade_out', 'timer': 0, 'fade_alpha': 0})
+
+    # 7) Fade out to black after store
+    if wave_transition['state'] == 'store_fade_out':
+        alpha = min(255, int(255 * wave_transition['timer'] / wave_transition['duration_store_fade_out']))
+        wave_transition['fade_alpha'] = alpha
+        if wave_transition['timer'] >= wave_transition['duration_store_fade_out']:
+            wave_transition.update({'state': 'resume_fade_in', 'timer': 0, 'fade_alpha': 255})
+            # Prepare next wave here
+            if wave_transition.get('next_castle') is None:
+                next_wave = wave + 1
+                next_mask_w, next_mask_h = get_wave_mask_size(next_wave)
+                min_blocks = 4 if next_wave == 1 else 6
+                next_castle, next_mask = create_castle_for_wave(next_wave)
+                chosen_music = MUSIC_PATH
+                if next_wave >= 2 and WAVE_MUSIC_FILES:
+                    import random
+                    chosen_music = random.choice(WAVE_MUSIC_FILES)
+                wave_transition['next_castle'] = next_castle
+                wave_transition['next_music'] = chosen_music
+
+    # 8) Fade back in to the game
+    if wave_transition['state'] == 'resume_fade_in':
+        alpha = max(0, 255 - int(255 * wave_transition['timer'] / wave_transition['duration_resume_fade_in']))
+        wave_transition['fade_alpha'] = alpha
+        if wave_transition['timer'] >= wave_transition['duration_resume_fade_in']:
+            wave_transition.update({'state': 'resume', 'timer': 0, 'fade_alpha': 0})
+
+    # 9) After resume, start next wave as before
     if wave_transition['state'] == 'resume' and wave_transition['timer'] >= wave_transition['duration_resume']:
-        # --- Activate next wave now that zoom-out is complete ---
         if wave_transition.get('next_castle') is not None:
             wave += 1
             castle = wave_transition['next_castle']
             if hasattr(castle, '_build_anim_state'):
                 castle_building = True
             balls.clear()
-            # Reset paddle size & clear active power-ups for fresh start
             for p in paddles.values():
                 p.widen()
             power_timers.clear()
-            # Wave banner announcement
             wave_text = f"WAVE {wave}!"
             wave_text_time = 3000
-            # Switch background music if prepared
             if wave_transition.get('next_music'):
                 try:
                     pygame.mixer.music.load(wave_transition['next_music'])
@@ -1452,8 +1509,6 @@ while running:
                     pygame.mixer.music.play(-1)
                 except Exception as e:
                     print(f"[Audio] Failed to load wave music: {e}")
-
-        # Reset transition state
         wave_transition.update({
             'state': 'idle',
             'active': False,
@@ -1484,6 +1539,21 @@ while running:
             pygame.mixer.music.play(-1, 0.0)
         tutorial_looping = False
         _tut_pause_until = 0
+    else:
+        # --- NEW: If music ends during a wave, pick a new random song (not the same as last) ---
+        if wave >= 2 and WAVE_MUSIC_FILES and not pygame.mixer.music.get_busy():
+            import random
+            available = [f for f in WAVE_MUSIC_FILES if f != last_wave_music]
+            if not available:
+                available = WAVE_MUSIC_FILES  # fallback if all are the same
+            chosen = random.choice(available)
+            try:
+                pygame.mixer.music.load(chosen)
+                pygame.mixer.music.set_volume(0.6)
+                pygame.mixer.music.play(-1)
+                last_wave_music = chosen
+            except Exception as e:
+                print(f"[Audio] Failed to load wave music: {e}")
     # --------------------------------------------------------------------
 
     # restart music after scheduled fade-out once the timer has elapsed
@@ -1622,6 +1692,13 @@ while running:
 
         screen.fill((255,255,255))  # fills behind – should be hidden after clamping
         screen.blit(zoomed_surf, (offset_x, offset_y))
+
+        # Draw overlays (store, pause menu, tutorial) during focus so the armory appears
+        if st == 'focus':
+            tutorial_overlay.draw(screen)
+            pause_menu.draw(screen)
+            store.draw(screen)
+
         pygame.display.flip()
 
     # After tutorial overlay is dismissed, start first castle build if not already started
@@ -1629,6 +1706,14 @@ while running:
         print("[DEBUG] Starting castle build animation")
         castle_building = True
         castle_built_once = True
+
+    # --- Fade overlay for store/game transitions ---
+    if wave_transition['state'] in ('fade_to_store', 'store_fade_in', 'store_fade_out', 'resume_fade_in'):
+        fade_alpha = wave_transition.get('fade_alpha', 0)
+        if fade_alpha > 0:
+            fade_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+            fade_surf.fill((0, 0, 0, fade_alpha))
+            screen.blit(fade_surf, (0, 0))
 
 pygame.quit()
 sys.exit()
