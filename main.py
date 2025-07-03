@@ -13,6 +13,10 @@ from game_over import run_game_over
 from castle_build_anim import update_castle_build_anim, draw_castle_build_anim
 # Heart collectible
 from heart import update_hearts, draw_hearts
+# Coin collectible and store system
+from coin import update_coins, draw_coins, get_coin_count, clear_coins
+from store import get_store
+from upgrade_effects import apply_upgrade_effects, reset_upgrade_states
 from pause_menu import PauseMenu  # <--- new import for in-game pause menu
 
 # --- helper ---
@@ -289,6 +293,8 @@ particles = []
 tutorial_overlay = TutorialOverlay()
 # Pause menu overlay
 pause_menu = PauseMenu()
+# Store interface
+store = get_store()
 # Disable cannon fire until tutorial is dismissed (restart)
 castle.shooting_enabled = False
 
@@ -564,11 +570,16 @@ while running:
     
     # feed events to pause menu
     pause_menu.update(events)
+    
+    # feed events to store
+    for event in events:
+        if store.handle_event(event):
+            break  # store consumed the event
 
     # -----------------------------------------------------
     #  Recalculate paused state now that overlays processed
     # -----------------------------------------------------
-    paused = intro_active or tutorial_overlay.active or pause_menu.active
+    paused = intro_active or tutorial_overlay.active or pause_menu.active or store.active
 
     for e in events:
         if e.type==pygame.QUIT:
@@ -602,6 +613,12 @@ while running:
     
     # ---------------- Hearts update ----------------
     update_hearts(dt, ms_game, balls, paddles)
+    
+    # ---------------- Store update ----------------
+    store.update(ms)
+    
+    # ---------------- Apply upgrade effects ----------------
+    apply_upgrade_effects(store, paddles, player_wall, castle, ms)
 
     # — Update paddles & balls —
     if not paused:
@@ -1195,20 +1212,24 @@ while running:
 
     # Draw hearts after castle so they appear on top of walls but under HUD
     draw_hearts(scene_surf)
+    
+    # Update and draw coins
+    update_coins(dt, ms, balls)
+    draw_coins(scene_surf)
 
     # Display score and current number of persistent debris pieces
-    debris_count = len(castle.debris)
-    coins_text = f"{0}"  # coins variable placeholder
+    # --- HUD: Score and Coins at Top Center ---
+    coins_text = str(get_coin_count())
     hud_text = f"{score}"
     score_surf = small_font.render(hud_text, True, (0,0,0))
     coin_surf = small_font.render(coins_text, True, (255,215,0))
     # simple 8-bit coin icon (yellow circle)
     coin_icon = pygame.Surface((12,12), pygame.SRCALPHA)
     pygame.draw.circle(coin_icon, (255,215,0), (6,6), 6)
-    # compute layout – centred at bottom
+    # compute layout – centered at top
     total_w = score_surf.get_width() + 8 + coin_icon.get_width() + coin_surf.get_width() + 10
     base_x = WIDTH//2 - total_w//2
-    y = HEIGHT - 24
+    y = 12  # Top margin
     scene_surf.blit(score_surf, (base_x, y))
     x = base_x + score_surf.get_width() + 8
     scene_surf.blit(coin_icon, (x, y+score_surf.get_height()//2 - 6))
@@ -1337,6 +1358,8 @@ while running:
         tutorial_overlay.draw(screen)
         # Draw pause menu on top of everything else
         pause_menu.draw(screen)
+        # Draw store on top of everything else
+        store.draw(screen)
         pygame.display.flip()
 
     # ---------------------------------------------------------
@@ -1380,9 +1403,12 @@ while running:
             'state': 'focus',
             'timer': 0,
         })
+        # Open the store at the end of each wave
+        store.open_store(wave)
 
     # 3) After FOCUS duration, build next wave (if ready) and start RESUME zoom-out
-    if wave_transition['state'] == 'focus' and wave_transition['timer'] >= wave_transition['duration_focus']:
+    # Only proceed if store is closed (wait for player to finish shopping)
+    if wave_transition['state'] == 'focus' and wave_transition['timer'] >= wave_transition['duration_focus'] and not store.active:
         # Begin RESUME phase – keep current scene; new wave assets are prepared above
         # Ensure next castle & music are generated in the background exactly once
         if wave_transition.get('next_castle') is None:
@@ -1504,6 +1530,10 @@ while running:
         balls        = []
         score        = 0
         particles    = []
+        # Reset coin and store state
+        clear_coins()
+        store.close_store()
+        reset_upgrade_states()
         shake_frames = 0
         shake_intensity = 0
         flash_color = None
