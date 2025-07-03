@@ -9,7 +9,36 @@ MAX_DEBRIS_COUNT = 1000  # tuned to keep performance reasonable
 CANNON_SLIDE_SPEED = 0.18  # px / ms – tuned for readable but still threatening movement
 CANNON_EASE_DISTANCE = 4.0  # pixels – begin ease-in when within this many pixels of waypoint
 _EASE_MIN = 0.25
-WALL_SHOT_PROB = 0.8  # 80 % of the time
+# Dynamic wall shot probability - starts low (favoring paddles), increases per wave
+def get_wall_shot_prob(wave_level):
+    """
+    Calculate wall shot probability based on wave level.
+    Wave 1: 20% wall shots (80% paddle shots)
+    Each wave: 10% relative reduction in paddle targeting
+    So paddle shots: 80% -> 72% -> 64.8% -> 58.32% etc.
+    Wall shots: 20% -> 28% -> 35.2% -> 41.68% etc.
+    """
+    base_paddle_prob = 0.8  # 80% paddle shots in wave 1
+    reduction_factor = 0.9  # 10% relative reduction per wave
+    current_paddle_prob = base_paddle_prob * (reduction_factor ** (wave_level - 1))
+    # Cap paddle probability at minimum 10% so there's always some paddle targeting
+    current_paddle_prob = max(0.1, current_paddle_prob)
+    wall_shot_prob = 1.0 - current_paddle_prob
+    return wall_shot_prob
+
+def get_wall_targeting_area(wave_level):
+    """
+    Calculate the targeting area for player wall based on wave level.
+    Wave 1: 40% of middle area
+    Each wave: 10% relative increase in area
+    So area: 40% -> 44% -> 48.4% -> 53.24% etc.
+    By wave 10: should cover nearly 100% (actually ~95.5%)
+    """
+    base_area = 0.4  # 40% of wall width in wave 1
+    growth_factor = 1.1  # 10% relative increase per wave
+    current_area = base_area * (growth_factor ** (wave_level - 1))
+    # Cap at 95% to ensure we don't exceed wall bounds
+    return min(0.95, current_area)
 _CANNON_MOVE_SHRINK_MS = 600  # shrink/spin-up phase duration (slowed)
 _CANNON_MOVE_GROW_MS   = 600  # grow/spin-down phase duration (slowed)
 _CANNON_MOVE_TRAVEL_MS = 900  # travel phase duration (new)
@@ -237,7 +266,7 @@ def update_castle(castle, dt_ms, player_score=0, paddles=None, player_wall=None,
             if paddle_objs:
                 shoot_wall = (
                     player_wall and player_wall.blocks and
-                    random.random() < WALL_SHOT_PROB
+                    random.random() < get_wall_shot_prob(castle.level)
                 )
                 if shoot_wall:
                     bottom_paddle = paddle_objs.get('bottom') if paddle_objs else None
@@ -250,18 +279,25 @@ def update_castle(castle, dt_ms, player_score=0, paddles=None, player_wall=None,
                         unguarded_blocks = list(player_wall.blocks)
                     candidate_blocks = unguarded_blocks if unguarded_blocks else list(player_wall.blocks)
                     if candidate_blocks:
-                        # Apply edge-bias that grows 5 % multiplicatively each wave
+                        # Apply dynamic targeting area that grows with wave level
                         xs = [b.centerx for b in player_wall.blocks]
                         min_x, max_x = min(xs), max(xs)
-                        edge_margin = BLOCK_SIZE * 2  # two blocks from edges count as edge
-                        edge_blocks   = [b for b in candidate_blocks if b.centerx <= min_x + edge_margin or b.centerx >= max_x - edge_margin]
-                        centre_blocks = [b for b in candidate_blocks if b not in edge_blocks]
-
-                        edge_prob = min(0.95, 0.2 * (1.05 ** (castle.level - 1)))  # starts 20 %, scales up
-                        if edge_blocks and random.random() < edge_prob:
-                            chosen_block = random.choice(edge_blocks)
-                        else:
-                            chosen_block = random.choice(centre_blocks if centre_blocks else candidate_blocks)
+                        wall_width = max_x - min_x
+                        center_x = (min_x + max_x) / 2
+                        
+                        # Get targeting area percentage for current wave
+                        targeting_area = get_wall_targeting_area(castle.level)
+                        targeting_width = wall_width * targeting_area
+                        targeting_min_x = center_x - targeting_width / 2
+                        targeting_max_x = center_x + targeting_width / 2
+                        
+                        # Filter blocks within the targeting area
+                        target_area_blocks = [b for b in candidate_blocks 
+                                            if targeting_min_x <= b.centerx <= targeting_max_x]
+                        
+                        # If no blocks in target area, fallback to all candidate blocks
+                        blocks_to_choose_from = target_area_blocks if target_area_blocks else candidate_blocks
+                        chosen_block = random.choice(blocks_to_choose_from)
                     else:
                         chosen_block = min(
                             player_wall.blocks,
@@ -536,7 +572,7 @@ def update_castle(castle, dt_ms, player_score=0, paddles=None, player_wall=None,
                 if paddle_objs:
                     shoot_wall = (
                         player_wall and player_wall.blocks and
-                        random.random() < WALL_SHOT_PROB
+                        random.random() < get_wall_shot_prob(castle.level)
                     )
                     if shoot_wall:
                         bottom_paddle = paddle_objs.get('bottom') if paddle_objs else None
@@ -549,18 +585,25 @@ def update_castle(castle, dt_ms, player_score=0, paddles=None, player_wall=None,
                             unguarded_blocks = list(player_wall.blocks)
                         candidate_blocks = unguarded_blocks if unguarded_blocks else list(player_wall.blocks)
                         if candidate_blocks:
-                            # Apply edge-bias that grows 5 % multiplicatively each wave
+                            # Apply dynamic targeting area that grows with wave level
                             xs = [b.centerx for b in player_wall.blocks]
                             min_x, max_x = min(xs), max(xs)
-                            edge_margin = BLOCK_SIZE * 2  # two blocks from edges count as edge
-                            edge_blocks   = [b for b in candidate_blocks if b.centerx <= min_x + edge_margin or b.centerx >= max_x - edge_margin]
-                            centre_blocks = [b for b in candidate_blocks if b not in edge_blocks]
-
-                            edge_prob = min(0.95, 0.2 * (1.05 ** (castle.level - 1)))  # starts 20 %, scales up
-                            if edge_blocks and random.random() < edge_prob:
-                                chosen_block = random.choice(edge_blocks)
-                            else:
-                                chosen_block = random.choice(centre_blocks if centre_blocks else candidate_blocks)
+                            wall_width = max_x - min_x
+                            center_x = (min_x + max_x) / 2
+                            
+                            # Get targeting area percentage for current wave
+                            targeting_area = get_wall_targeting_area(castle.level)
+                            targeting_width = wall_width * targeting_area
+                            targeting_min_x = center_x - targeting_width / 2
+                            targeting_max_x = center_x + targeting_width / 2
+                            
+                            # Filter blocks within the targeting area
+                            target_area_blocks = [b for b in candidate_blocks 
+                                                if targeting_min_x <= b.centerx <= targeting_max_x]
+                            
+                            # If no blocks in target area, fallback to all candidate blocks
+                            blocks_to_choose_from = target_area_blocks if target_area_blocks else candidate_blocks
+                            chosen_block = random.choice(blocks_to_choose_from)
                         else:
                             chosen_block = min(
                                 player_wall.blocks,

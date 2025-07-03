@@ -32,7 +32,7 @@ CANNON_EASE_DISTANCE = 4.0  # pixels – begin ease-in when within this many pix
 _EASE_MIN = 0.25
 
 # Chance that a cannon deliberately targets the player wall even when a paddle is available
-WALL_SHOT_PROB = 0.8  # 80 % of the time
+# WALL_SHOT_PROB now handled dynamically in castle_update.py
 
 # --------------------------------------------------
 # Audio – cannon shot SFX with subtle pitch variants
