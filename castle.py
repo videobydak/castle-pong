@@ -513,7 +513,7 @@ class Castle:
                         self.block_cracks[key] = create_crack_animator(block)
                     self.block_cracks[key].add_crack(impact_point, impact_angle, debug=False)
 
-            # If still alive after hit, exit early
+                        # If still alive after hit, exit early
             if self.block_health[key] > 0:
                 return  # Not destroyed yet
 
@@ -527,6 +527,15 @@ class Castle:
                 print("[HEART] Spawn call completed (hit_block)")
             except Exception as e:
                 print("[HEART] Spawn error:", e)
+
+            # ----------------------------------------------
+            #  Coin drop on final destruction (hit_block)
+            # ----------------------------------------------
+            try:
+                from coin import maybe_spawn_coins
+                maybe_spawn_coins(block)
+            except Exception as e:
+                print("[COIN] Spawn error:", e)
 
         # Remove cracks if block is destroyed
         if key in self.block_cracks:
@@ -787,6 +796,15 @@ class Castle:
                 print("[HEART] Spawn call completed")
             except Exception as e:
                 print("[HEART] Spawn error:", e)
+
+            # --------------------------------------------------------------
+            #  Coin drop on block destruction
+            # --------------------------------------------------------------
+            try:
+                from coin import maybe_spawn_coins
+                maybe_spawn_coins(block)
+            except Exception as e:
+                print("[COIN] Spawn error:", e)
 
         # Fewer chips for reinforced hits that don't destroy
         if tier > 2 and not will_destroy:
