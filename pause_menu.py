@@ -54,7 +54,15 @@ class PauseMenu:
     def _resume(self):
         self.active = False
     def _options(self):
-        pass  # placeholder
+        """Open the options menu."""
+        try:
+            import sys
+            _main = sys.modules['__main__']
+            if hasattr(_main, 'options_menu'):
+                self.active = False  # Close pause menu
+                _main.options_menu.open_options()
+        except Exception as e:
+            print("[PauseMenu] Failed to open options:", e)
     def _store(self):
         """Close pause menu and open the Armory store."""
         try:

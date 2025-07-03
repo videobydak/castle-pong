@@ -257,8 +257,14 @@ class TutorialOverlay:
         _main.tutorial_looping = False
 
     def _on_options(self):
-        # Placeholder for future options menu
-        pass
+        """Open the options menu."""
+        try:
+            import sys
+            _main = sys.modules['__main__']
+            if hasattr(_main, 'options_menu'):
+                _main.options_menu.open_options()
+        except Exception as e:
+            print("[TutorialOverlay] Failed to open options:", e)
 
     def _on_quit(self):
         pygame.quit()
