@@ -10,7 +10,7 @@ class OptionsMenu:
     def __init__(self):
         self.active = False
         self.bg = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        self.bg.fill((0, 0, 0, 180))
+        self.bg.fill((0, 0, 0, 230))
         
         # Font setup
         self.title_font = self._load_pixel_font(96)
@@ -384,40 +384,34 @@ class OptionsMenu:
         button_width = toggle_rect.width // 2
         on_rect = pygame.Rect(toggle_rect.left, toggle_rect.top, button_width, toggle_rect.height)
         off_rect = pygame.Rect(toggle_rect.left + button_width, toggle_rect.top, button_width, toggle_rect.height)
-        
-        # Colors for ON button
-        if value:  # ON is active
-            on_bg_color = YELLOW if selected else (80, 200, 80)  # Green when ON
-            on_border_color = (255, 255, 255) if selected else (0, 0, 0)
-            on_text_color = (0, 0, 0) if selected else WHITE
-        else:  # ON is inactive
-            on_bg_color = (110, 110, 110) if selected else (40, 40, 40)
-            on_border_color = YELLOW if selected else (80, 80, 80)
-            on_text_color = YELLOW if selected else (120, 120, 120)
-        
-        # Colors for OFF button
-        if not value:  # OFF is active
-            off_bg_color = YELLOW if selected else (200, 80, 80)  # Red when OFF
-            off_border_color = (255, 255, 255) if selected else (0, 0, 0)
-            off_text_color = (0, 0, 0) if selected else WHITE
-        else:  # OFF is inactive
-            off_bg_color = (110, 110, 110) if selected else (40, 40, 40)
-            off_border_color = YELLOW if selected else (80, 80, 80)
-            off_text_color = YELLOW if selected else (120, 120, 120)
-        
+
+        GREY_BG = (60, 60, 60)
+        LIGHT_GREY_TEXT = (220, 220, 220)
+        YELLOW_BG = YELLOW
+        BLACK_TEXT = (0, 0, 0)
+
+        # INVERTED: When value is True, OFF is yellow; when value is False, ON is yellow
+        if value:
+            on_bg_color = GREY_BG
+            on_text_color = LIGHT_GREY_TEXT
+            off_bg_color = YELLOW_BG
+            off_text_color = BLACK_TEXT
+        else:
+            on_bg_color = YELLOW_BG
+            on_text_color = BLACK_TEXT
+            off_bg_color = GREY_BG
+            off_text_color = LIGHT_GREY_TEXT
+
         # Draw ON button
         pygame.draw.rect(surface, on_bg_color, on_rect)
-        pygame.draw.rect(surface, on_border_color, on_rect, 2)
-        
-        # Draw OFF button
-        pygame.draw.rect(surface, off_bg_color, off_rect)
-        pygame.draw.rect(surface, off_border_color, off_rect, 2)
-        
-        # Draw text on buttons
+        pygame.draw.rect(surface, (0, 0, 0), on_rect, 2)
         on_text_surf = self._render_outline("ON", self.btn_font, on_text_color, (0, 0, 0), 1)
         on_text_rect = on_text_surf.get_rect(center=on_rect.center)
         surface.blit(on_text_surf, on_text_rect)
-        
+
+        # Draw OFF button
+        pygame.draw.rect(surface, off_bg_color, off_rect)
+        pygame.draw.rect(surface, (0, 0, 0), off_rect, 2)
         off_text_surf = self._render_outline("OFF", self.btn_font, off_text_color, (0, 0, 0), 1)
         off_text_rect = off_text_surf.get_rect(center=off_rect.center)
         surface.blit(off_text_surf, off_text_rect)
