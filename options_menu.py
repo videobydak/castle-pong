@@ -141,6 +141,8 @@ class OptionsMenu:
         self.active = True
         self.selected_option = 0
         self.dragging_slider = None
+        # Apply settings to ensure all volumes are up to date
+        self._apply_settings()
     
     def close_options(self):
         """Close the options menu and save settings."""
