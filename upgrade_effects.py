@@ -3,6 +3,7 @@ import pygame
 from typing import Dict, Any
 from config import PADDLE_LEN, WIDTH, HEIGHT, PADDLE_MARGIN, SCALE
 import coin
+import math
 
 # Upgrade state tracking
 upgrade_states = {
@@ -20,6 +21,14 @@ upgrade_states = {
     'emergency_heal_uses': 0,
     'multi_ball_charges': 0,
     'power_shot_charges': 0,
+    'lucky_charm_active': False,
+    'lucky_charm_timer': 0,
+    'block_vision_active': False,
+    'block_vision_timer': 0,
+    'wave_preview_active': False,
+    'extra_lives': 0,
+    'auto_collect_level': 0,
+    'score_bonus_level': 0,
 }
 
 def apply_upgrade_effects(store, paddles: Dict[str, Any], player_wall, castle, dt_ms: int):
@@ -44,17 +53,23 @@ def apply_passive_upgrades(store, paddles: Dict[str, Any], player_wall, castle):
         for paddle in paddles.values():
             if not hasattr(paddle, 'upgrade_width_applied'):
                 paddle.base_len = PADDLE_LEN + width_bonus
-                paddle.rect.width = paddle.base_len
-                paddle.width = paddle.base_len
+                paddle.logical_width = PADDLE_LEN + width_bonus
+                paddle.target_width = PADDLE_LEN + width_bonus
+                paddle._start_width_animation(paddle.logical_width)
                 paddle.upgrade_width_applied = True
     
     # Wind Walker's Grace - Paddle agility (reduced inertia)
     if store.has_upgrade('paddle_agility'):
         level = store.get_upgrade_level('paddle_agility')
         for paddle in paddles.values():
+            # Store original values if not already stored
+            if not hasattr(paddle, 'original_accel'):
+                paddle.original_accel = getattr(paddle, 'accel', 0.6)
+                paddle.original_max_speed = getattr(paddle, 'max_speed', 10)
+            
             # Increase acceleration and max speed
-            paddle.accel = 0.6 + (level * 0.2)  # base 0.6, +0.2 per level
-            paddle.max_speed = 10 + (level * 3)  # base 10, +3 per level
+            paddle.accel = paddle.original_accel + (level * 0.2)  # +0.2 per level
+            paddle.max_speed = paddle.original_max_speed + (level * 3)  # +3 per level
     
     # Fortune's Favor - Coin boost
     if store.has_upgrade('coin_boost'):
@@ -95,8 +110,9 @@ def apply_consumable_upgrades(store, upgrade_id: str, paddles: Dict[str, Any], p
     
     elif upgrade_id == 'lucky_charm':
         # Rabbit's Foot - Increase heart drop chance
-        # This would need to be implemented in the heart system
-        pass
+        # Set a flag that the heart system can check
+        upgrade_states['lucky_charm_active'] = True
+        upgrade_states['lucky_charm_timer'] = 30000  # 30 seconds
     
     elif upgrade_id == 'shield_barrier':
         # Arcane Ward - Magical barrier
@@ -105,8 +121,8 @@ def apply_consumable_upgrades(store, upgrade_id: str, paddles: Dict[str, Any], p
     
     elif upgrade_id == 'block_vision':
         # Oracle's Sight - Reveal weak points (visual effect)
-        # This would add visual indicators to blocks
-        pass
+        upgrade_states['block_vision_active'] = True
+        upgrade_states['block_vision_timer'] = 45000  # 45 seconds
     
     elif upgrade_id == 'ghost_paddle':
         # Spectral Form - Paddle becomes ethereal
@@ -147,24 +163,36 @@ def apply_single_upgrades(store, upgrade_id: str, paddles: Dict[str, Any], playe
         # Wet Paddle Charm - Fire resistance
         for paddle in paddles.values():
             paddle.fire_resistance = True
+    
+    elif upgrade_id == 'coin_radius':
+        # Merchant's Reach - Increase coin collection range
+        # This would modify the collision detection range for coins
+        coin.set_magnetism_strength(1.5)
+    
+    elif upgrade_id == 'wave_preview':
+        # Strategic Foresight - See preview of next wave
+        upgrade_states['wave_preview_active'] = True
+    
+    elif upgrade_id == 'coin_magnet':
+        # Prospector's Dream - Coins drift toward paddle
+        coin.set_magnetism_strength(2.0)
 
 def apply_tiered_upgrades(store, upgrade_id: str, level: int, paddles: Dict[str, Any], player_wall, castle):
     """Apply tiered upgrade effects based on level."""
     
     if upgrade_id == 'extra_life':
         # Phoenix Feather - Extra lives
-        # This would be handled in the game over logic
-        pass
+        upgrade_states['extra_lives'] = level
     
     elif upgrade_id == 'auto_collect':
         # Treasure Hunter's Instinct - Auto collect coins
-        # This would modify coin collection radius
-        pass
+        upgrade_states['auto_collect_level'] = level
+        # Increase coin collection radius based on level
+        coin.set_magnetism_strength(1.0 + (level * 0.5))
     
     elif upgrade_id == 'score_bonus':
         # Glory Seeker's Pride - Score bonus
-        # This would modify score calculations
-        pass
+        upgrade_states['score_bonus_level'] = level
     
     elif upgrade_id == 'emergency_heal':
         # Angel's Grace - Auto heal when critical
@@ -198,6 +226,18 @@ def update_temporary_effects(dt_ms: int, player_wall):
         if upgrade_states['ghost_paddle_timer'] <= 0:
             upgrade_states['ghost_paddle_active'] = False
     
+    # Lucky charm
+    if upgrade_states.get('lucky_charm_active', False):
+        upgrade_states['lucky_charm_timer'] -= dt_ms
+        if upgrade_states['lucky_charm_timer'] <= 0:
+            upgrade_states['lucky_charm_active'] = False
+    
+    # Block vision
+    if upgrade_states.get('block_vision_active', False):
+        upgrade_states['block_vision_timer'] -= dt_ms
+        if upgrade_states['block_vision_timer'] <= 0:
+            upgrade_states['block_vision_active'] = False
+    
     # Repair drone
     if upgrade_states['repair_drone_active']:
         upgrade_states['repair_drone_timer'] -= dt_ms
@@ -219,37 +259,85 @@ def apply_emergency_healing(store, paddles: Dict[str, Any]):
 
 def heal_paddle(paddle):
     """Restore paddle length."""
-    new_len = min(PADDLE_LEN, int(paddle.width * 1.5))
-    if new_len <= paddle.width:
-        return
+    # Restore paddle to full length
+    paddle.logical_width = PADDLE_LEN
+    paddle._start_width_animation(PADDLE_LEN)
     
-    if paddle.side in ("top", "bottom"):
-        centre = paddle.rect.centerx
-        paddle.rect.width = new_len
-        paddle.rect.x = max(PADDLE_MARGIN, min(WIDTH - new_len - PADDLE_MARGIN, centre - new_len // 2))
-    else:
-        centre = paddle.rect.centery
-        paddle.rect.height = new_len
-        paddle.rect.y = max(PADDLE_MARGIN, min(HEIGHT - new_len - PADDLE_MARGIN, centre - new_len // 2))
-    
-    paddle.width = new_len
+    # Trigger heal pulse visual effect
+    paddle.heal_pulse_timer = 30  # 30 frames of pulsing
 
 def repair_wall_blocks(player_wall, count: int):
     """Repair destroyed wall blocks."""
-    # This would need to be implemented based on how the player wall tracks damage
-    # For now, this is a placeholder
-    pass
+    if not player_wall or not hasattr(player_wall, 'blocks'):
+        return
+    
+    # Find potential repair positions by creating a grid of where blocks should be
+    repaired_count = 0
+    block_size = player_wall.block_size
+    rows = player_wall.rows
+    
+    # Calculate where blocks should be based on the original wall structure
+    start_y = HEIGHT - rows * block_size
+    full_cols = math.ceil(WIDTH / block_size)
+    
+    potential_repairs = []
+    
+    # Check each potential block position
+    for row in range(rows):
+        y = start_y + row * block_size
+        for col in range(full_cols):
+            x = col * block_size
+            # Last column might exceed WIDTH – clamp its width to fit onscreen
+            w = min(block_size, WIDTH - x)
+            if w <= 0:
+                continue
+                
+            potential_rect = pygame.Rect(x, y, w, block_size)
+            
+            # Check if there's already a block here
+            has_block = any(potential_rect.colliderect(existing_block) for existing_block in player_wall.blocks)
+            
+            if not has_block:
+                potential_repairs.append(potential_rect)
+    
+    # Repair up to 'count' blocks, prioritizing middle positions
+    if potential_repairs:
+        # Sort by distance from center-bottom (most important positions first)
+        center_x = WIDTH // 2
+        potential_repairs.sort(key=lambda rect: abs(rect.centerx - center_x) + rect.y)
+        
+        for i in range(min(count, len(potential_repairs))):
+            new_block = potential_repairs[i]
+            player_wall.blocks.append(new_block)
+            repaired_count += 1
 
 def upgrade_wall_layer(castle, layer: int):
     """Upgrade castle wall to specified layer."""
+    if not castle or not hasattr(castle, 'block_health'):
+        return
+        
     # Upgrade all existing blocks to the specified layer
-    for key in castle.block_health.keys():
+    for key in list(castle.block_health.keys()):
         tier = layer + 1  # layer 1 = tier 2, etc.
+        
+        # Set tier
+        if not hasattr(castle, 'block_tiers'):
+            castle.block_tiers = {}
         castle.block_tiers[key] = tier
-        castle.set_block_color_by_strength(key, tier)
+        
+        # Update color if the method exists
+        if hasattr(castle, 'set_block_color_by_strength'):
+            castle.set_block_color_by_strength(key, tier)
+        
         # Set health based on tier
-        extra = 0 if tier == 2 else (1 if tier == 3 else 2)
-        castle.block_health[key] = 1 + extra
+        if tier == 2:
+            castle.block_health[key] = 2
+        elif tier == 3:
+            castle.block_health[key] = 3
+        elif tier == 4:
+            castle.block_health[key] = 4
+        else:
+            castle.block_health[key] = 1
 
 def get_time_scale() -> float:
     """Get current time scale for slow-motion effects."""
@@ -260,6 +348,34 @@ def get_time_scale() -> float:
 def is_barrier_active() -> bool:
     """Check if magical barrier is active."""
     return upgrade_states['shield_barrier_active']
+
+def is_lucky_charm_active() -> bool:
+    """Check if lucky charm (increased heart drop chance) is active."""
+    return upgrade_states.get('lucky_charm_active', False)
+
+def is_block_vision_active() -> bool:
+    """Check if block vision (reveal weak points) is active."""
+    return upgrade_states.get('block_vision_active', False)
+
+def has_wave_preview() -> bool:
+    """Check if wave preview is available."""
+    return upgrade_states.get('wave_preview_active', False)
+
+def get_extra_lives() -> int:
+    """Get number of extra lives available."""
+    return upgrade_states.get('extra_lives', 0)
+
+def use_extra_life() -> bool:
+    """Use an extra life if available."""
+    if upgrade_states.get('extra_lives', 0) > 0:
+        upgrade_states['extra_lives'] -= 1
+        return True
+    return False
+
+def get_score_bonus_multiplier() -> float:
+    """Get score bonus multiplier."""
+    level = upgrade_states.get('score_bonus_level', 0)
+    return 1.0 + (level * 0.2)  # +20% per level
 
 def should_apply_multi_ball() -> bool:
     """Check if multi-ball effect should be applied."""
@@ -293,4 +409,12 @@ def reset_upgrade_states():
         'emergency_heal_uses': 0,
         'multi_ball_charges': 0,
         'power_shot_charges': 0,
+        'lucky_charm_active': False,
+        'lucky_charm_timer': 0,
+        'block_vision_active': False,
+        'block_vision_timer': 0,
+        'wave_preview_active': False,
+        'extra_lives': 0,
+        'auto_collect_level': 0,
+        'score_bonus_level': 0,
     }
