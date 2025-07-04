@@ -582,7 +582,23 @@ while running:
     prev_tut_active = getattr(tutorial_overlay, '_prev_active', tutorial_overlay.active)
     prev_loading = getattr(tutorial_overlay, '_prev_loading', False)
     
-    tutorial_overlay.update(events)
+    # feed events to options menu first - consume events if options menu is active
+    options_consumed_events = options_menu.update(events)
+    
+    # feed events to store
+    store_consumed_events = False
+    for event in events:
+        if store.handle_event(event):
+            store_consumed_events = True
+            break  # store consumed the event
+    
+    # Only feed events to other menus if options menu didn't consume them
+    if not options_consumed_events and not store_consumed_events:
+        # feed events to pause menu
+        pause_menu.update(events)
+        
+        # feed events to tutorial overlay
+        tutorial_overlay.update(events)
     
     # Check if loading just started
     if not prev_loading and tutorial_overlay.loading:
@@ -614,19 +630,6 @@ while running:
     
     tutorial_overlay._prev_active = tutorial_overlay.active
     tutorial_overlay._prev_loading = tutorial_overlay.loading
-    
-    # feed events to pause menu
-    pause_menu.update(events)
-    
-    # feed events to options menu - consume events if options menu is active
-    options_consumed_events = options_menu.update(events)
-    
-    # feed events to store
-    store_consumed_events = False
-    for event in events:
-        if store.handle_event(event):
-            store_consumed_events = True
-            break  # store consumed the event
 
     # -----------------------------------------------------
     #  Recalculate paused state now that overlays processed
