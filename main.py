@@ -618,12 +618,14 @@ while running:
     # feed events to pause menu
     pause_menu.update(events)
     
-    # feed events to options menu
-    options_menu.update(events)
+    # feed events to options menu - consume events if options menu is active
+    options_consumed_events = options_menu.update(events)
     
     # feed events to store
+    store_consumed_events = False
     for event in events:
         if store.handle_event(event):
+            store_consumed_events = True
             break  # store consumed the event
 
     # -----------------------------------------------------
@@ -631,35 +633,37 @@ while running:
     # -----------------------------------------------------
     paused = intro_active or tutorial_overlay.active or pause_menu.active or options_menu.active or store.active
 
-    for e in events:
-        if e.type==pygame.QUIT:
-            running=False
-        # keypresses
-        if e.type==pygame.KEYDOWN or e.type==pygame.KEYUP:
-            down = (e.type==pygame.KEYDOWN)
-            # handle Pause toggle
-            if e.type==pygame.KEYDOWN and e.key==pygame.K_ESCAPE:
-                pause_menu.toggle()
-                continue  # don't process further for ESC
-            # spacebar to release sticky balls or bump paddles
-            if e.key==pygame.K_SPACE and down:
-                now = pygame.time.get_ticks()
-                for b in balls:
-                    if b.stuck_to is not None:
-                        dir_vec = pygame.Vector2(WIDTH//2 - b.pos.x, HEIGHT//2 - b.pos.y)
-                        if dir_vec.length_squared()==0:
-                            dir_vec = pygame.Vector2(0,-1)
-                        min_speed = BALL_SPEED * 0.6
-                        b.vel = dir_vec.normalize() * max(BALL_SPEED, min_speed)
-                        # Set fireball immunity for the paddle for 500ms
-                        b.stuck_to.fireball_immunity_until = now + 500
-                        b.stuck_to = None
-                        b.friendly = False
-                        # Set sticky cooldown for 500ms
-                        b.sticky_cooldown_until = now + 500
-                # --- NEW: bump paddles physically ---
-                for p in paddles.values():
-                    p.bump()
+    # Only process game events if no menu consumed them
+    if not options_consumed_events and not store_consumed_events:
+        for e in events:
+            if e.type==pygame.QUIT:
+                running=False
+            # keypresses
+            if e.type==pygame.KEYDOWN or e.type==pygame.KEYUP:
+                down = (e.type==pygame.KEYDOWN)
+                # handle Pause toggle
+                if e.type==pygame.KEYDOWN and e.key==pygame.K_ESCAPE:
+                    pause_menu.toggle()
+                    continue  # don't process further for ESC
+                # spacebar to release sticky balls or bump paddles
+                if e.key==pygame.K_SPACE and down:
+                    now = pygame.time.get_ticks()
+                    for b in balls:
+                        if b.stuck_to is not None:
+                            dir_vec = pygame.Vector2(WIDTH//2 - b.pos.x, HEIGHT//2 - b.pos.y)
+                            if dir_vec.length_squared()==0:
+                                dir_vec = pygame.Vector2(0,-1)
+                            min_speed = BALL_SPEED * 0.6
+                            b.vel = dir_vec.normalize() * max(BALL_SPEED, min_speed)
+                            # Set fireball immunity for the paddle for 500ms
+                            b.stuck_to.fireball_immunity_until = now + 500
+                            b.stuck_to = None
+                            b.friendly = False
+                            # Set sticky cooldown for 500ms
+                            b.sticky_cooldown_until = now + 500
+                    # --- NEW: bump paddles physically ---
+                    for p in paddles.values():
+                        p.bump()
     
     # ---------------- Hearts update ----------------
     update_hearts(dt, ms_game, balls, paddles)
