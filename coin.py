@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 # Coin collectible – 8-bit pixel coins that provide currency for upgrades.
 # -----------------------------------------------------------------------------
 
-__all__ = ["maybe_spawn_coins", "update_coins", "draw_coins", "get_coin_count", "clear_coins"]
+__all__ = ["maybe_spawn_coins", "update_coins", "draw_coins", "get_coin_count", "clear_coins", "update_coin_volumes"]
 
 # Active coin instances in the world
 _active_coins: List["_Coin"] = []
@@ -355,7 +355,7 @@ def _pitch_shift(sound: pygame.mixer.Sound, factor: float) -> pygame.mixer.Sound
     idx = np.linspace(0, orig_len - 1, new_len).astype(np.int32)
     shifted = arr[idx]
     snd = pygame.sndarray.make_sound(shifted.copy())
-    snd.set_volume(sound.get_volume())
+    # Don't set volume here - will be set by _apply_coin_volume() when played
     _CLINK_CACHE[factor] = snd
     return snd
 
@@ -366,7 +366,7 @@ def _play_clink(combo_index: int):
     if _CLINK_BASE is None:
         try:
             _CLINK_BASE = pygame.mixer.Sound("SoundCrib - Game Coin Collector - Metallic Clink 02.wav")
-            _CLINK_BASE.set_volume(0.8)
+            # Don't set volume here - will be set by _apply_coin_volume()
         except pygame.error as e:
             print("[Audio] Failed to load Metallic Clink:", e)
             _CLINK_BASE = False
@@ -377,7 +377,29 @@ def _play_clink(combo_index: int):
     factor = pow(2, semitones / 12.0)
     snd = _pitch_shift(_CLINK_BASE, factor)
     if snd:
+        # Apply current volume settings before playing
+        _apply_coin_volume(snd)
         snd.play()
+
+
+def _apply_coin_volume(sound):
+    """Apply current SFX volume settings to a coin sound."""
+    try:
+        import sys
+        # Try to get volume from options menu
+        if '__main__' in sys.modules and hasattr(sys.modules['__main__'], 'options_menu'):
+            options_menu = sys.modules['__main__'].options_menu
+            if options_menu.settings['sfx_muted']:
+                sound.set_volume(0)
+            else:
+                # Base volume of 0.8 multiplied by settings
+                sound.set_volume(0.8 * options_menu.settings['sfx_volume'])
+        else:
+            # Fallback to default volume
+            sound.set_volume(0.8)
+    except Exception:
+        # Fallback to default volume if anything fails
+        sound.set_volume(0.8)
 
 
 def _update_combo_timers(dt_ms: int):
@@ -421,6 +443,19 @@ def _draw_combo(screen: pygame.Surface):
         surf.set_alpha(alpha)
     rect = surf.get_rect(center=(WIDTH // 2, HEIGHT // 4))
     screen.blit(surf, rect)
+
+
+def update_coin_volumes():
+    """Update volumes for all coin sounds. Called by options menu."""
+    global _CLINK_BASE, _CLINK_CACHE
+    
+    if _CLINK_BASE:
+        _apply_coin_volume(_CLINK_BASE)
+    
+    # Update all cached pitched sounds
+    for sound in _CLINK_CACHE.values():
+        if sound:
+            _apply_coin_volume(sound)
 
 
 if __name__ == "__main__":

@@ -76,8 +76,29 @@ class PauseMenu:
         except Exception as e:
             print("[PauseMenu] Failed to open store:", e)
     def _exit(self):
-        pygame.quit()
-        sys.exit()
+        """Return to main menu instead of quitting the game."""
+        try:
+            import sys
+            _main = sys.modules['__main__']
+            if hasattr(_main, 'tutorial_overlay'):
+                # Close pause menu and activate main menu
+                self.active = False
+                # Reset the tutorial overlay to show main menu
+                _main.tutorial_overlay.active = True
+                _main.tutorial_overlay.loading = False
+                # Stop current music and restart tutorial music
+                pygame.mixer.music.fadeout(400)
+                try:
+                    pygame.mixer.music.load(_main.MUSIC_PATH)
+                    pygame.mixer.music.set_volume(0.6)
+                    pygame.mixer.music.play(-1)
+                except Exception as e:
+                    print(f"[Audio] Failed to restart tutorial music: {e}")
+        except Exception as e:
+            print("[PauseMenu] Failed to return to main menu:", e)
+            # Fallback to quit if we can't return to main menu
+            pygame.quit()
+            sys.exit()
 
     # ------------------------------------------------
     def toggle(self):
