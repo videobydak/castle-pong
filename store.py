@@ -71,6 +71,9 @@ class Store:
         self.wave_number = 1
         self.player_upgrades = {}  # id -> current_level or purchase_count
         
+        # Game state references for applying effects
+        self.game_state = None
+        
         # Initialize all upgrades
         self.upgrades = self._initialize_upgrades()
         
@@ -392,15 +395,25 @@ class Store:
             self.player_upgrades[upgrade.id] = 0
         self.player_upgrades[upgrade.id] += 1
         
-        # Apply specific upgrade effects immediately for consumables
-        if upgrade.upgrade_type == "consumable":
+        # Apply specific upgrade effects immediately if we have game state
+        if self.game_state:
             try:
-                from upgrade_effects import apply_consumable_upgrades
-                # We'll need to get game state from somewhere - for now this is a placeholder
-                # The main game loop will handle this
-                pass
+                from upgrade_effects import apply_consumable_upgrades, apply_single_upgrades, apply_tiered_upgrades
+                
+                paddles = self.game_state['paddles']
+                player_wall = self.game_state['player_wall']
+                castle = self.game_state['castle']
+                
+                if upgrade.upgrade_type == "consumable":
+                    apply_consumable_upgrades(self, upgrade.id, paddles, player_wall, castle)
+                elif upgrade.upgrade_type == "single":
+                    apply_single_upgrades(self, upgrade.id, paddles, player_wall, castle)
+                elif upgrade.upgrade_type == "tiered":
+                    level = self.player_upgrades[upgrade.id]
+                    apply_tiered_upgrades(self, upgrade.id, level, paddles, player_wall, castle)
+                    
             except ImportError:
-                pass
+                print(f"Warning: Could not import upgrade effects for {upgrade.id}")
 
     def _create_purchase_particles(self, center: Tuple[int, int]):
         """Create particle effect for successful purchase."""
@@ -642,6 +655,14 @@ class Store:
         while text and font.size(text + ellipsis)[0] > max_width:
             text = text[:-1]
         return text + ellipsis
+
+    def set_game_state(self, paddles, player_wall, castle):
+        """Set game state references for applying effects."""
+        self.game_state = {
+            'paddles': paddles,
+            'player_wall': player_wall,
+            'castle': castle
+        }
 
 
 # Global store instance

@@ -302,6 +302,8 @@ options_menu = OptionsMenu()
 options_menu._apply_settings()
 # Store interface
 store = get_store()
+# Set game state references for upgrade effects
+store.set_game_state(paddles, player_wall, castle)
 # Disable cannon fire until tutorial is dismissed (restart)
 castle.shooting_enabled = False
 
@@ -1638,6 +1640,8 @@ while running:
         clear_coins()
         store.close_store()
         reset_upgrade_states()
+        # Update game state references after restart
+        store.set_game_state(paddles, player_wall, castle)
         shake_frames = 0
         shake_intensity = 0
         flash_color = None
