@@ -336,11 +336,14 @@ def _play_coin_sound():
     if _COIN_SOUND is None:
         try:
             _COIN_SOUND = pygame.mixer.Sound("Sound Response - 8 Bit Retro - Arcade Blip.wav")
-            _COIN_SOUND.set_volume(0.7)
+            # Set initial volume based on current settings
+            _apply_coin_volume(_COIN_SOUND)
         except pygame.error as e:
             print("[Audio] Failed to load coin SFX:", e)
             _COIN_SOUND = False  # mark as unusable
     if _COIN_SOUND:
+        # Apply current volume settings before playing
+        _apply_coin_volume(_COIN_SOUND)
         _COIN_SOUND.play()
 
 
@@ -366,11 +369,17 @@ def _play_clink(combo_index: int):
     if _CLINK_BASE is None:
         try:
             _CLINK_BASE = pygame.mixer.Sound("SoundCrib - Game Coin Collector - Metallic Clink 02.wav")
-            # Don't set volume here - will be set by _apply_coin_volume()
+            # Set initial volume based on current settings
+            _apply_coin_volume(_CLINK_BASE)
         except pygame.error as e:
             print("[Audio] Failed to load Metallic Clink:", e)
             _CLINK_BASE = False
     if not _CLINK_BASE:
+        # Try to play the fallback arcade blip sound instead
+        try:
+            _play_coin_sound()
+        except:
+            pass  # If both sounds fail, just continue silently
         return
 
     semitones = combo_index * 2  # 0,2,4,6…
@@ -384,21 +393,40 @@ def _play_clink(combo_index: int):
 
 def _apply_coin_volume(sound):
     """Apply current SFX volume settings to a coin sound."""
+    if not sound:
+        return
+    
     try:
         import sys
         # Try to get volume from options menu
         if '__main__' in sys.modules and hasattr(sys.modules['__main__'], 'options_menu'):
             options_menu = sys.modules['__main__'].options_menu
-            if options_menu.settings['sfx_muted']:
-                sound.set_volume(0)
-            else:
-                # Base volume of 0.8 multiplied by settings
-                sound.set_volume(0.8 * options_menu.settings['sfx_volume'])
-        else:
-            # Fallback to default volume
-            sound.set_volume(0.8)
-    except Exception:
+            if hasattr(options_menu, 'settings'):
+                if options_menu.settings.get('sfx_muted', False):
+                    sound.set_volume(0)
+                    return
+                else:
+                    # Base volume of 0.8 multiplied by settings
+                    volume = 0.8 * options_menu.settings.get('sfx_volume', 0.5)
+                    sound.set_volume(volume)
+                    return
+        
+        # If options menu not available, try to get volume from main module sounds
+        if '__main__' in sys.modules and hasattr(sys.modules['__main__'], 'sounds'):
+            main_sounds = sys.modules['__main__'].sounds
+            if main_sounds:
+                # Use the volume from another sound as reference
+                for main_sound in main_sounds.values():
+                    if main_sound and hasattr(main_sound, 'get_volume'):
+                        # Use the same volume as other SFX
+                        sound.set_volume(main_sound.get_volume() * 2.0)  # Coin sounds are typically louder
+                        return
+        
+        # Fallback to default volume
+        sound.set_volume(0.8)
+    except Exception as e:
         # Fallback to default volume if anything fails
+        print(f"[Audio] Warning: Failed to apply coin volume settings: {e}")
         sound.set_volume(0.8)
 
 
@@ -447,14 +475,19 @@ def _draw_combo(screen: pygame.Surface):
 
 def update_coin_volumes():
     """Update volumes for all coin sounds. Called by options menu."""
-    global _CLINK_BASE, _CLINK_CACHE
+    global _CLINK_BASE, _CLINK_CACHE, _COIN_SOUND
     
-    if _CLINK_BASE:
+    # Update base metallic clink sound
+    if _CLINK_BASE and _CLINK_BASE is not False:
         _apply_coin_volume(_CLINK_BASE)
+    
+    # Update fallback coin sound
+    if _COIN_SOUND and _COIN_SOUND is not False:
+        _apply_coin_volume(_COIN_SOUND)
     
     # Update all cached pitched sounds
     for sound in _CLINK_CACHE.values():
-        if sound:
+        if sound and sound is not False:
             _apply_coin_volume(sound)
 
 
