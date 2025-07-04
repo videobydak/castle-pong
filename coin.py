@@ -73,11 +73,11 @@ class _Coin:
                 self.vel.xy = (0, 0)
                 self.resting = True
         
-        # Magnetism effect - attract towards white cannonballs
+        # Magnetism effect - attract towards player-controlled balls
         if self.magnetism_strength > 0 and balls is not None:
             from ball import Ball  # local import to avoid circular deps
             for ball in balls:
-                if isinstance(ball, Ball) and ball.color == WHITE and not getattr(ball, 'friendly', False):
+                if isinstance(ball, Ball) and not getattr(ball, 'friendly', False):
                     dist_vec = ball.pos - self.pos
                     distance = dist_vec.length()
                     if distance < 100 and distance > 0:  # within magnetism range
@@ -247,12 +247,12 @@ def update_coins(dt_frames: float, dt_ms: int, balls: list):
             _active_coins.remove(coin)
             continue
         
-        # Collision check with WHITE cannonballs only
+        # Collision check with player-controlled balls (any ball hit by paddle)
         c_rect = coin.rect()
         collected = False
         if coin.collect_delay == 0:  # only collectible after delay
             for ball in balls:
-                if (isinstance(ball, Ball) and ball.color == WHITE and 
+                if (isinstance(ball, Ball) and 
                     not getattr(ball, 'friendly', False) and c_rect.colliderect(ball.rect())):
                     collected = True
                     break
