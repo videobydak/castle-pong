@@ -167,12 +167,12 @@ def update_hearts(dt_frames: float, dt_ms: int, balls: list, paddles: Dict[str, 
         if not alive:
             _active_hearts.remove(heart)
             continue
-        # Collision check with WHITE cannonballs only
+        # Collision check with player-controlled balls (any ball hit by paddle)
         h_rect = heart.rect()
         collected = False
         if heart.collect_delay == 0:  # only collectible after delay
             for ball in balls:
-                if (isinstance(ball, Ball) and ball.color == WHITE and not getattr(ball, 'friendly', False) and h_rect.colliderect(ball.rect())):
+                if (isinstance(ball, Ball) and not getattr(ball, 'friendly', False) and h_rect.colliderect(ball.rect())):
                     collected = True
                     break
         if collected:
