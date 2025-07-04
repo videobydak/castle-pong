@@ -1531,6 +1531,7 @@ while running:
             if hasattr(castle, '_build_anim_state'):
                 castle_building = True
             balls.clear()
+            clear_coins()  # Clear coins from previous wave
             for p in paddles.values():
                 p.widen()
             power_timers.clear()
