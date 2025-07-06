@@ -1332,7 +1332,8 @@ while running:
 
     # draw / update paddle intro animations on top of scene
     for intro in intros[:]:
-        ms_clamped = min(ms, 100)
+        # EDGE CASE FIX: Ensure consistent timing and prevent zero delta time
+        ms_clamped = max(1, min(ms, 100))  # Minimum 1ms, maximum 100ms
         if intro.update(ms_clamped):
             # intro finished – activate paddle
             paddles[intro.side] = Paddle(intro.side)
