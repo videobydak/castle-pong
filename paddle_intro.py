@@ -33,10 +33,21 @@ class PaddleIntro:
         self.phase = 'fly_in'  # fly_in -> spin -> fly_out
         self.timer = 0  # ms within current phase
         self.angle = 0.0  # degrees
+        
+        # CRITICAL FIX: Initialize position immediately to prevent flickering
+        self.pos = self.start_pos.copy()
 
         # Pre-render NEW PADDLE text
         self.text_surf = intro_font.render("NEW PADDLE!", True, (200, 30, 200))
         self.text_rect = self.text_surf.get_rect(center=(WIDTH // 2, HEIGHT // 3))
+
+        # Cache paddle surface to avoid recreation every frame
+        if self.side in ('top', 'bottom'):
+            w, h = self.pad_len, self.thickness
+        else:
+            w, h = self.thickness, self.pad_len
+        self._paddle_surf = pygame.Surface((w, h), pygame.SRCALPHA)
+        self._paddle_surf.fill((176, 96, 32))  # wooden colour
 
         # --- particle streak background ---
         # Remove streaks - using only purple swirling circle effect
@@ -83,10 +94,13 @@ class PaddleIntro:
         return 1 + (s + 1) * t ** 3 + s * t ** 2
 
     def update(self, dt_ms):
+        # EDGE CASE FIX: Ensure minimum delta time to prevent animation issues
+        dt_ms = max(dt_ms, 1)  # Minimum 1ms to prevent division by zero or stalling
+        
         self.timer += dt_ms
 
         if self.phase == 'fly_in':
-            t = min(1.0, self.timer / self.FLY_TIME)
+            t = min(1.0, self.timer / max(1, self.FLY_TIME))  # Prevent division by zero
             self.pos = self.start_pos.lerp(self.center_pos, PaddleIntro._ease_out_cubic(t))
             if t >= 1.0:
                 self.phase = 'spin'
@@ -96,7 +110,7 @@ class PaddleIntro:
                     self._spawn_burst()
                     self._burst_spawned = True
         elif self.phase == 'spin':
-            t = min(1.0, self.timer / self.SPIN_TIME)
+            t = min(1.0, self.timer / max(1, self.SPIN_TIME))
             self.pos = self.center_pos
             # Smooth spin – accelerate then decelerate
             ease = PaddleIntro._ease_out_cubic(t)
@@ -108,7 +122,7 @@ class PaddleIntro:
                 self.phase = 'fly_out'
                 self.timer = 0
         elif self.phase == 'fly_out':
-            t = min(1.0, self.timer / self.EXIT_TIME)
+            t = min(1.0, self.timer / max(1, self.EXIT_TIME))
             self.pos = self.center_pos.lerp(self.final_pos, PaddleIntro._ease_out_cubic(t))
             # Keep angle fixed at final orientation during fly-out
             self.angle = PaddleIntro._FINAL_ANGLE.get(self.side, 0)
@@ -194,19 +208,18 @@ class PaddleIntro:
             self.burst.append(Particle(pos.x, pos.y, vel, color, life=120, size=size, fade=True))
 
     def draw(self, surf):
-        # Draw paddle as simple rectangle with rotation
-        if self.side in ('top', 'bottom'):
-            w, h = self.pad_len, self.thickness
-        else:
-            w, h = self.thickness, self.pad_len
-
-        paddle_surf = pygame.Surface((w, h), pygame.SRCALPHA)
-        # wooden colour
-        paddle_surf.fill((176, 96, 32))
-        rot_surf = pygame.transform.rotate(paddle_surf, self.angle)
-        rot_rect = rot_surf.get_rect(center=(int(self.pos.x), int(self.pos.y)))
-
-        # Remove streak particles - using only purple swirling circle
+        # EDGE CASE FIX: Ensure position is valid before drawing
+        if not hasattr(self, 'pos') or self.pos is None:
+            return  # Skip drawing if position not initialized
+        
+        # Use cached paddle surface instead of creating new one every frame
+        try:
+            rot_surf = pygame.transform.rotate(self._paddle_surf, self.angle)
+            rot_rect = rot_surf.get_rect(center=(int(self.pos.x), int(self.pos.y)))
+        except (ValueError, OverflowError):
+            # Handle potential rotation errors on first frame
+            rot_surf = self._paddle_surf
+            rot_rect = rot_surf.get_rect(center=(int(self.pos.x), int(self.pos.y)))
 
         # draw radial burst particles (purple swirling and fluttering)
         for p in self.burst:
@@ -216,8 +229,8 @@ class PaddleIntro:
 
         # Flash NEW PADDLE text during spin phase and fade out on exit
         if self.phase in ('spin', 'fly_out'):  # still show text during exit, but banner only in spin
-            phase_t = (min(1.0, self.timer / self.SPIN_TIME) if self.phase=='spin'
-                        else min(1.0, self.timer / self.EXIT_TIME))
+            phase_t = (min(1.0, self.timer / max(1, self.SPIN_TIME)) if self.phase=='spin'
+                        else min(1.0, self.timer / max(1, self.EXIT_TIME)))
 
             if self.phase == 'spin':
                 # pulsing alpha
@@ -244,6 +257,11 @@ class PaddleIntro:
                 banner_surf.fill((255,255,255,230))
                 surf.blit(banner_surf, banner_rect)
 
-            txt = self.text_surf.copy()
-            txt.set_alpha(alpha)
-            surf.blit(txt, self.text_rect) 
+            # EDGE CASE FIX: Safer text surface handling
+            try:
+                txt = self.text_surf.copy()
+                txt.set_alpha(max(0, min(255, alpha)))  # Clamp alpha to valid range
+                surf.blit(txt, self.text_rect)
+            except (pygame.error, ValueError):
+                # Fallback: draw text without alpha if copy fails
+                surf.blit(self.text_surf, self.text_rect) 
