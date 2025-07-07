@@ -1,2 +1,6 @@
 pygame
-numpy 
+numpy
+matplotlib
+scipy
+matplotlib
+scipy

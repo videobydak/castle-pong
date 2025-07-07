@@ -467,20 +467,22 @@ class Castle:
             rec['shake'] = rec.get('shake', 0) + random.randint(4, 8)
 
             # Debris burst scaled to lost progress
-            block_rect = pygame.Rect(pos[0], pos[1], self.block_size, self.block_size)
-            origin = pygame.Vector2(block_rect.centerx, block_rect.centery)
-            debris_count = max(2, int(30 * lost_progress))
-            col_pair = self.block_colors.get(pos, ((110, 110, 110), (90, 90, 90)))
-            for _ in range(debris_count):
-                ang = random.uniform(0, 360)
-                speed = random.uniform(2, 6) * (0.5 + lost_progress)
-                vel = pygame.Vector2(speed, 0).rotate(ang)
-                deb = {'pos': origin.copy(), 'vel': vel, 'color': random.choice(col_pair),
-                       'size': random.randint(2, 4), 'friction': random.uniform(0.94, 0.985)}
-                if random.random() < 0.3:
-                    deb['dig_delay'] = random.randint(0, int(15 * SCALE))
-                    deb['dig_frames'] = random.randint(int(15 * SCALE), int(90 * SCALE))
-                self.debris.append(deb)
+            # DEBRIS FIX: Don't create debris during paddle intro animations
+            if not getattr(self, '_pause_rebuild', False):
+                block_rect = pygame.Rect(pos[0], pos[1], self.block_size, self.block_size)
+                origin = pygame.Vector2(block_rect.centerx, block_rect.centery)
+                debris_count = max(2, int(30 * lost_progress))
+                col_pair = self.block_colors.get(pos, ((110, 110, 110), (90, 90, 90)))
+                for _ in range(debris_count):
+                    ang = random.uniform(0, 360)
+                    speed = random.uniform(2, 6) * (0.5 + lost_progress)
+                    vel = pygame.Vector2(speed, 0).rotate(ang)
+                    deb = {'pos': origin.copy(), 'vel': vel, 'color': random.choice(col_pair),
+                           'size': random.randint(2, 4), 'friction': random.uniform(0.94, 0.985)}
+                    if random.random() < 0.3:
+                        deb['dig_delay'] = random.randint(0, int(15 * SCALE))
+                        deb['dig_frames'] = random.randint(int(15 * SCALE), int(90 * SCALE))
+                    self.debris.append(deb)
 
     def hit_block(self, block, impact_point=None, impact_angle=None):
         key = (block.x, block.y)
@@ -588,30 +590,32 @@ class Castle:
         #  Spawn debris on final destruction (unless skipped)
         # -------------------------------------------------------
         if not getattr(self, '_skip_debris', False):
-            # Approximate incoming direction from impact_angle if provided; else upward
-            if impact_angle is not None:
-                incoming_dir = pygame.Vector2(math.cos(impact_angle), math.sin(impact_angle))
-            else:
-                incoming_dir = pygame.Vector2(0, -1)
+            # DEBRIS FIX: Don't create debris during paddle intro animations
+            if not getattr(self, '_pause_rebuild', False):
+                # Approximate incoming direction from impact_angle if provided; else upward
+                if impact_angle is not None:
+                    incoming_dir = pygame.Vector2(math.cos(impact_angle), math.sin(impact_angle))
+                else:
+                    incoming_dir = pygame.Vector2(0, -1)
 
-            color_pair = self.block_colors.get(key, ((110, 110, 110), (90, 90, 90)))
-            debris_count = 30
-            base_dir = (-incoming_dir.normalize()) if incoming_dir.length_squared() != 0 else pygame.Vector2(0, -1)
-            for _ in range(debris_count):
-                angle_variation = random.uniform(-40, 40)
-                speed = random.uniform(2, 6) * SCALE
-                vel = base_dir.rotate(angle_variation) * speed
-                size = int(random.randint(2, 4) * SCALE)
-                deb = {'pos': pygame.Vector2(block.centerx, block.centery), 'vel': vel,
-                       'color': random.choice(color_pair), 'size': size,
-                       'friction': random.uniform(0.94, 0.985)}
-                if random.random() < 0.3:
-                    deb['dig_delay'] = random.randint(0, int(15 * SCALE))
-                    deb['dig_frames'] = random.randint(int(15 * SCALE), int(90 * SCALE))
-                self.debris.append(deb)
+                color_pair = self.block_colors.get(key, ((110, 110, 110), (90, 90, 90)))
+                debris_count = 30
+                base_dir = (-incoming_dir.normalize()) if incoming_dir.length_squared() != 0 else pygame.Vector2(0, -1)
+                for _ in range(debris_count):
+                    angle_variation = random.uniform(-40, 40)
+                    speed = random.uniform(2, 6) * SCALE
+                    vel = base_dir.rotate(angle_variation) * speed
+                    size = int(random.randint(2, 4) * SCALE)
+                    deb = {'pos': pygame.Vector2(block.centerx, block.centery), 'vel': vel,
+                           'color': random.choice(color_pair), 'size': size,
+                           'friction': random.uniform(0.94, 0.985)}
+                    if random.random() < 0.3:
+                        deb['dig_delay'] = random.randint(0, int(15 * SCALE))
+                        deb['dig_frames'] = random.randint(int(15 * SCALE), int(90 * SCALE))
+                    self.debris.append(deb)
 
-            # Apply rebuild setbacks & debris for in-progress blocks
-            self._apply_rebuild_setback()
+                # Apply rebuild setbacks & debris for in-progress blocks
+                self._apply_rebuild_setback()
 
         # Clear the temporary skip flag if it was set by shatter_block
         if hasattr(self, '_skip_debris'):
@@ -727,15 +731,14 @@ class Castle:
                 pygame.draw.circle(screen, (255,255,255), rect.center, rad, 2)
 
         # --- draw debris pieces ---
-        # Skip drawing debris while paddle intro animations are active to prevent stray specks
-        if not getattr(self, '_pause_rebuild', False):
-            for d in self.debris:
-                # Skip if shrunk away completely
-                if d.get('size', 0) <= 0:
-                    continue
-                x, y = int(d['pos'].x), int(d['pos'].y)
-                size = int(max(1, d['size']))  # ensure at least 1 pixel for visibility
-                pygame.draw.rect(screen, d['color'], (x, y, size, size))
+        # Always draw debris, even during paddle intro animations
+        for d in self.debris:
+            # Skip if shrunk away completely
+            if d.get('size', 0) <= 0:
+                continue
+            x, y = int(d['pos'].x), int(d['pos'].y)
+            size = int(max(1, d['size']))  # ensure at least 1 pixel for visibility
+            pygame.draw.rect(screen, d['color'], (x, y, size, size))
 
         # ------------------------------------------------------------------
         # CANNON DRAW PASS – cannons now positioned on castle blocks
@@ -773,11 +776,14 @@ class Castle:
             if max_noise_deg > 0:
                 ball.vel = ball.vel.rotate(random.uniform(-max_noise_deg, max_noise_deg))
             # ----------------------------------------------------
-            # Release ammo reservations once the projectile is spawned
-            # ----------------------------------------------------
-            # Potions can be selected again once the projectile is on screen
+            # Keep the reservation active until the potion projectile is fully
+            # registered in the main balls list.  This prevents another cannon
+            # from beginning a potion charge in the very same frame and firing
+            # two potions simultaneously.
+            # (Reset now handled automatically at the start of update_castle
+            #  when no active power-up projectiles are detected.)
             if shot_type == 'power':
-                self.potion_reserved = False
+                pass  # reservation remains True until the projectile exits play
         
         return ball
 
@@ -824,20 +830,22 @@ class Castle:
             # Only layer-1 destruction gets dirt streaks
             allow_dig    = (tier == 2 and will_destroy)
 
-        base_dir = (-incoming_dir.normalize()) if incoming_dir.length_squared()!=0 else pygame.Vector2(0, -1)
-        for _ in range(debris_count):
-            angle_variation = random.uniform(-40, 40)
-            speed = random.uniform(2, 6) * SCALE
-            vel = base_dir.rotate(angle_variation) * speed
-            col = random.choice(color_pair)
-            size = int(random.randint(2,4) * SCALE)
-            pos = pygame.Vector2(block.centerx, block.centery)
-            deb = {'pos': pos.copy(), 'vel': vel, 'color': col, 'size': size,
-                   'friction': random.uniform(0.94, 0.985)}
-            if allow_dig and random.random() < 0.3:
-                deb['dig_delay']  = random.randint(0, int(15 * SCALE))   # frames before it starts digging
-                deb['dig_frames'] = random.randint(int(15 * SCALE), int(90 * SCALE))  # how long it digs
-            self.debris.append(deb)
+        # DEBRIS FIX: Don't create debris during paddle intro animations
+        if not getattr(self, '_pause_rebuild', False):
+            base_dir = (-incoming_dir.normalize()) if incoming_dir.length_squared()!=0 else pygame.Vector2(0, -1)
+            for _ in range(debris_count):
+                angle_variation = random.uniform(-40, 40)
+                speed = random.uniform(2, 6) * SCALE
+                vel = base_dir.rotate(angle_variation) * speed
+                col = random.choice(color_pair)
+                size = int(random.randint(2,4) * SCALE)
+                pos = pygame.Vector2(block.centerx, block.centery)
+                deb = {'pos': pos.copy(), 'vel': vel, 'color': col, 'size': size,
+                       'friction': random.uniform(0.94, 0.985)}
+                if allow_dig and random.random() < 0.3:
+                    deb['dig_delay']  = random.randint(0, int(15 * SCALE))   # frames before it starts digging
+                    deb['dig_frames'] = random.randint(int(15 * SCALE), int(90 * SCALE))  # how long it digs
+                self.debris.append(deb)
 
         # Remove the block via existing logic
         self._skip_debris = True

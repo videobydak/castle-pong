@@ -31,6 +31,17 @@ upgrade_states = {
     'score_bonus_level': 0,
 }
 
+# ------------------------------
+# Potion unlock state
+# ------------------------------
+unlocked_potions = set()
+
+def unlock_potion(potion_id: str):
+    unlocked_potions.add(potion_id)
+
+def get_unlocked_potions():
+    return list(unlocked_potions)
+
 def apply_upgrade_effects(store, paddles: Dict[str, Any], player_wall, castle, dt_ms: int):
     """Apply all active upgrade effects to the game state."""
     
@@ -77,11 +88,11 @@ def apply_passive_upgrades(store, paddles: Dict[str, Any], player_wall, castle):
         multiplier = 1.0 + (level * 0.25)  # +25% per level
         coin.set_coin_multiplier(multiplier)
     
-    # Lodestone Aura / Prospector's Dream - Magnetism
-    if store.has_upgrade('ball_magnetism') or store.has_upgrade('coin_magnet'):
-        strength = 2.0 if store.has_upgrade('ball_magnetism') else 1.0
-        if store.has_upgrade('coin_magnet'):
-            strength += 1.5
+    # Lodestone Magnetism (combined tiered upgrade)
+    if store.has_upgrade('lodestone_magnetism'):
+        level = store.get_upgrade_level('lodestone_magnetism')
+        # Level 1 → 1.5, Level 2 → 2.5, Level 3 → 3.5
+        strength = 1.5 + (level - 1) * 1.0
         coin.set_magnetism_strength(strength)
 
 def apply_consumable_upgrades(store, upgrade_id: str, paddles: Dict[str, Any], player_wall, castle):
@@ -142,19 +153,7 @@ def apply_consumable_upgrades(store, upgrade_id: str, paddles: Dict[str, Any], p
 def apply_single_upgrades(store, upgrade_id: str, paddles: Dict[str, Any], player_wall, castle):
     """Apply single-purchase upgrade effects."""
     
-    if upgrade_id == 'wall_layer1':
-        # Apprentice Fortification - Upgrade wall to layer 1
-        upgrade_wall_layer(castle, 1)
-    
-    elif upgrade_id == 'wall_layer2':
-        # Master Stonework - Upgrade wall to layer 2
-        upgrade_wall_layer(castle, 2)
-    
-    elif upgrade_id == 'wall_layer3':
-        # Legendary Masonry - Upgrade wall to layer 3
-        upgrade_wall_layer(castle, 3)
-    
-    elif upgrade_id == 'repair_drone':
+    if upgrade_id == 'repair_drone':
         # Golem Servant - Auto repair drone
         upgrade_states['repair_drone_active'] = True
         upgrade_states['repair_drone_timer'] = upgrade_states['repair_drone_interval']
@@ -177,6 +176,10 @@ def apply_single_upgrades(store, upgrade_id: str, paddles: Dict[str, Any], playe
         # Prospector's Dream - Coins drift toward paddle
         coin.set_magnetism_strength(2.0)
 
+    # ---------------- Potion unlocks ----------------
+    elif upgrade_id.startswith('potion_'):
+        unlock_potion(upgrade_id.split('_',1)[1])
+
 def apply_tiered_upgrades(store, upgrade_id: str, level: int, paddles: Dict[str, Any], player_wall, castle):
     """Apply tiered upgrade effects based on level."""
     
@@ -197,6 +200,15 @@ def apply_tiered_upgrades(store, upgrade_id: str, level: int, paddles: Dict[str,
     elif upgrade_id == 'emergency_heal':
         # Angel's Grace - Auto heal when critical
         upgrade_states['emergency_heal_uses'] = level
+    
+    elif upgrade_id == 'fortified_walls':
+        # Upgrade player wall visual strength based on level (1 or 2)
+        upgrade_player_wall_layer(player_wall, level)
+    
+    elif upgrade_id == 'lodestone_magnetism':
+        # Apply magnetism handled in passive upgrades; nothing to do here except maybe update strength immediately
+        strength = 1.5 + (level - 1) * 1.0
+        coin.set_magnetism_strength(strength)
 
 def update_temporary_effects(dt_ms: int, player_wall):
     """Update temporary upgrade effects and timers."""
@@ -418,3 +430,29 @@ def reset_upgrade_states():
         'auto_collect_level': 0,
         'score_bonus_level': 0,
     }
+
+# ------------------------------------------------------------------
+#  New helper – upgrade player wall layer (visual only)
+# ------------------------------------------------------------------
+
+def upgrade_player_wall_layer(player_wall, level: int):
+    """Upgrade *player_wall* bricks to stronger visuals for *level* (1 or 2)."""
+    if not player_wall:
+        return
+    from config import BLOCK_COLOR_L2, BLOCK_COLOR_L3
+
+    if level == 1:
+        player_wall._color_pair = BLOCK_COLOR_L2
+        # Set health to 2 for all blocks
+        for key in player_wall.block_health:
+            player_wall.block_health[key] = 2
+    else:
+        player_wall._color_pair = BLOCK_COLOR_L3
+        for key in player_wall.block_health:
+            player_wall.block_health[key] = 3
+
+    # Clear texture cache so new colour is generated
+    if hasattr(player_wall, '_textures'):
+        player_wall._textures = {}
+
+    # Potential enhancement: add extra health – currently visual only

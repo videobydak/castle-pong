@@ -100,5 +100,16 @@ def _debug_filter_print(*args, **kwargs):
 _builtins.print = _debug_filter_print
 
 def get_random_potion_type(rng=random):
-    types, weights = zip(*POTION_TYPE_WEIGHTS)
+    try:
+        from upgrade_effects import get_unlocked_potions
+        unlocked = get_unlocked_potions()
+    except ImportError:
+        unlocked = []
+    if not unlocked:
+        return None
+    # Filter weights to only unlocked potions
+    filtered = [(ptype, w) for (ptype, w) in POTION_TYPE_WEIGHTS if ptype in unlocked]
+    if not filtered:
+        return None
+    types, weights = zip(*filtered)
     return rng.choices(types, weights=weights, k=1)[0] 

@@ -672,11 +672,13 @@ def update_castle(castle, dt_ms, player_score=0, paddles=None, player_wall=None,
         c._debug_last_pos = c.pos.copy()
 
     # --- update smoke particles ---
-    for s in castle.smoke_particles[:]:
-        s['pos'] += s['vel']
-        s['life'] -= 1
-        if s['life'] <= 0:
-            castle.smoke_particles.remove(s)
+    # Pause smoke movement while paddle intro animations are active
+    if not getattr(castle, '_pause_rebuild', False):
+        for s in castle.smoke_particles[:]:
+            s['pos'] += s['vel']
+            s['life'] -= 1
+            if s['life'] <= 0:
+                castle.smoke_particles.remove(s)
 
     # --- update debris ---
     # Pause debris movement while paddle intro animations are active (castle._pause_rebuild flag)

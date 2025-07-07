@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 # Heart collectible – simple 8-bit pixel heart that heals the weakest paddle.
 # -----------------------------------------------------------------------------
 
-__all__ = ["maybe_spawn_hearts", "update_hearts", "draw_hearts"]
+__all__ = ["maybe_spawn_hearts", "update_hearts", "draw_hearts", "clear_hearts"]
 
 # Active heart instances in the world
 _active_hearts: List["_Heart"] = []
@@ -194,6 +194,12 @@ def draw_hearts(screen: pygame.Surface):
     #     print(f"[HEART] Drawing {{_active_hearts.__len__()}} hearts")
     for heart in _active_hearts:
         heart.draw(screen)
+
+
+def clear_hearts():
+    """Clear all active hearts from the field (used for game reset)."""
+    global _active_hearts
+    _active_hearts = []
 
 
 # -----------------------------------------------------------------------------

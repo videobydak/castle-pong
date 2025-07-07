@@ -20,6 +20,9 @@ class Paddle:
         self.flicker = False  # For blue flicker effect
         self.vel = 0  # current velocity along movement axis
         self.inward_vel = 0.0  # velocity for inward bump
+        # Instance acceleration and max speed (can be modified by upgrades)
+        self.accel = PADDLE_ACCEL
+        self.max_speed = PADDLE_MAX_SPEED
         self.inward_offset = 0.0  # offset for inward bump
         # small visual offset for impact shake
         self.offset = pygame.Vector2(0,0)
@@ -69,8 +72,8 @@ class Paddle:
         # Inertial movement with acceleration and friction (side-to-side or up/down)
         if self.side in ('top','bottom'):
             if self.dir != 0:
-                self.vel += self.dir * PADDLE_ACCEL
-                self.vel = max(-PADDLE_MAX_SPEED, min(PADDLE_MAX_SPEED, self.vel))
+                self.vel += self.dir * self.accel
+                self.vel = max(-self.max_speed, min(self.max_speed, self.vel))
             else:
                 self.vel *= PADDLE_FRICTION
                 if abs(self.vel) < 0.1:
@@ -81,8 +84,8 @@ class Paddle:
                 self.vel = 0
         else:
             if self.dir != 0:
-                self.vel += self.dir * PADDLE_ACCEL
-                self.vel = max(-PADDLE_MAX_SPEED, min(PADDLE_MAX_SPEED, self.vel))
+                self.vel += self.dir * self.accel
+                self.vel = max(-self.max_speed, min(self.max_speed, self.vel))
             else:
                 self.vel *= PADDLE_FRICTION
                 if abs(self.vel) < 0.1:

@@ -12,13 +12,14 @@ from paddle_intro import PaddleIntro
 from game_over import run_game_over
 from castle_build_anim import update_castle_build_anim, draw_castle_build_anim
 # Heart collectible
-from heart import update_hearts, draw_hearts
+from heart import update_hearts, draw_hearts, clear_hearts
 # Coin collectible and store system
 from coin import update_coins, draw_coins, get_coin_count, clear_coins
 from store import get_store
-from upgrade_effects import apply_upgrade_effects, reset_upgrade_states
+from upgrade_effects import apply_upgrade_effects, reset_upgrade_states, get_time_scale, get_unlocked_potions
 from pause_menu import PauseMenu  # <--- new import for in-game pause menu
 from options_menu import OptionsMenu  # <--- new import for options menu
+import time
 
 # --- helper ---
 def reflect(ball, rect):
@@ -430,13 +431,14 @@ def return_to_main_menu(show_menu=True):
 
     # Entities -----------------------------------------------------------
     player_wall = PlayerWall()
-    paddles     = {'bottom': Paddle('bottom')}
+    paddles     = {}  # Do not add 'bottom' paddle yet
     balls       = []
     particles   = []
     score       = 0
 
     # Collectibles / upgrades -------------------------------------------
     clear_coins()
+    clear_hearts()
     store.close_store()
     reset_upgrade_states()
     store.set_game_state(paddles, player_wall, castle)
@@ -497,6 +499,112 @@ def return_to_main_menu(show_menu=True):
     # Re-apply any saved option settings
     options_menu._apply_settings()
 
+    # Trigger intro animation for bottom paddle at game start
+    from paddle_intro import PaddleIntro
+    intros.append(PaddleIntro('bottom', sounds, _load_sound, intro_font))
+
+# --- Tooltip for paddle controls ---
+class PaddleTooltip:
+    FADE_IN = 400     # ms
+    SHOW_TIME = 2600  # ms fully visible
+    FADE_OUT = 700    # ms
+    TOTAL_TIME = FADE_IN + SHOW_TIME + FADE_OUT
+    FONT_SIZE = 18
+
+    def __init__(self, side, paddle_ref):
+        self.side = side
+        self.paddle_ref = paddle_ref  # Reference to the actual Paddle object
+        self.start_time = pygame.time.get_ticks()
+        self.done = False
+        # Font: use pixel font if available
+        self.font = pygame.font.Font('PressStart2P-Regular.ttf', self.FONT_SIZE) if os.path.isfile('PressStart2P-Regular.ttf') else pygame.font.SysFont('Courier New', self.FONT_SIZE, bold=True)
+        self.text = self._get_instruction_text()
+        self.lines = self.text.split('. ')
+        self.rendered = [self.font.render(line, True, (0,0,0)) for line in self.lines]
+        self.w = max(r.get_width() for r in self.rendered) + 24
+        self.h = sum(r.get_height() for r in self.rendered) + 24
+        # Dismissal handling
+        self.dismiss_start = None  # time when space pressed
+
+    def _get_instruction_text(self):
+        base = "SPACE to 'bump'. SPACE to dismiss tooltips"
+        if self.side == 'bottom':
+            return "Use ← and → to move your paddle. " + base
+        elif self.side == 'top':
+            return "Use A and D to move your paddle. " + base
+        elif self.side == 'left':
+            return "Use W and S to move your paddle. " + base
+        else:
+            return "Use ↑ and ↓ to move your paddle. " + base
+
+    def update(self, events):
+        now = pygame.time.get_ticks()
+        elapsed = now - self.start_time
+        if elapsed > self.TOTAL_TIME:
+            self.done = True
+        # Early dismissal on spacebar keydown
+        for e in events:
+            if e.type == pygame.KEYDOWN and e.key == pygame.K_SPACE and self.dismiss_start is None:
+                self.dismiss_start = now
+
+    def draw(self, surf):
+        now = pygame.time.get_ticks()
+        elapsed = now - self.start_time
+        if elapsed < self.FADE_IN:
+            alpha = int(255 * (elapsed / self.FADE_IN))
+        elif elapsed < self.FADE_IN + self.SHOW_TIME:
+            alpha = 255
+        elif elapsed < self.TOTAL_TIME:
+            alpha = int(255 * (1 - (elapsed - self.FADE_IN - self.SHOW_TIME) / self.FADE_OUT))
+        else:
+            alpha = 0
+        if alpha <= 0:
+            return
+        # Position bubble next to/under the real paddle
+        pad = self.paddle_ref
+        pr = pad.rect
+        offset = 10
+        bx = pr.centerx
+        by = pr.centery - self.h//2
+        if self.side == 'bottom':
+            bx, by = pr.centerx, pr.bottom + offset
+            # Clamp to screen
+            by = min(by, HEIGHT - self.h - 4)
+        elif self.side == 'top':
+            bx, by = pr.centerx, pr.top - self.h - offset
+            by = max(4, by)
+        elif self.side == 'left':
+            bx, by = pr.left - self.w - offset, pr.centery - self.h//2
+            bx = max(4, bx)
+        else:  # right
+            bx, by = pr.right + offset, pr.centery - self.h//2
+            bx = min(bx, WIDTH - self.w - 4)
+        # Ensure Y within screen for side paddles
+        by = max(4, min(by, HEIGHT - self.h - 4))
+        # Determine alpha with possible early dismissal fade
+        if self.dismiss_start is not None:
+            fade_elapsed = now - self.dismiss_start
+            alpha = int(255 * max(0, 1 - fade_elapsed / self.FADE_OUT))
+            if alpha == 0:
+                self.done = True
+        # Bubble with semi-transparent background (alpha up to 200 for visibility)
+        bubble_alpha = min(alpha, 200)
+        bubble = pygame.Surface((self.w, self.h), pygame.SRCALPHA)
+        pygame.draw.rect(bubble, (255,255,255,bubble_alpha), (0,0,self.w,self.h), border_radius=8)
+        pygame.draw.rect(bubble, (0,0,0,bubble_alpha), (0,0,self.w,self.h), 3, border_radius=8)
+        y = 12
+        for r in self.rendered:
+            r.set_alpha(alpha)
+            bubble.blit(r, ((self.w - r.get_width())//2, y))
+            y += r.get_height() + 2
+        # Blit bubble without tail
+        surf.blit(bubble, (bx - (self.w//2 if self.side in ('top','bottom') else 0), by))
+
+# Holds active paddle tooltips
+paddle_tooltips = []
+# Holds (side, paddle_ref, show_time) for tooltips to be shown after a delay
+pending_tooltips = []
+
 while running:
     ms = clock.tick(FPS)
     
@@ -536,6 +644,8 @@ while running:
     elif wave_transition['state'] == 'resume':
         prog = min(1.0, wave_transition['timer'] / wave_transition['duration_resume'])
         time_scale = wave_transition['min_scale'] + (1.0 - wave_transition['min_scale']) * prog
+    # Apply slow-motion from Chronos Blessing upgrade
+    time_scale *= get_time_scale()
 
     # Pause gameplay while an intro animation is active (unless in transition)
     intro_active = bool(intros)
@@ -621,7 +731,11 @@ while running:
             if castle._build_anim_state['done']:
                 castle_building = False
         # Continue with normal game loop (castle.update) unless intro animation is active
-        if not intro_active:
+        if (not intro_active and not pause_menu.active and not store.active and
+            not options_menu.active):
+            # Run castle logic only when gameplay is fully active. This prevents
+            # cannons from charging or shooting while the game is paused,
+            # in the store, or in the options menu.
             new_balls = castle.update(ms_castle, score, paddles, player_wall, balls)
             if new_balls:
                 balls.extend(new_balls)
@@ -784,7 +898,8 @@ while running:
     store.update(ms)
     
     # ---------------- Apply upgrade effects ----------------
-    apply_upgrade_effects(store, paddles, player_wall, castle, ms)
+    effective_ms = ms if (not store.active and not pause_menu.active) else 0
+    apply_upgrade_effects(store, paddles, player_wall, castle, effective_ms)
 
     # — Update paddles & balls —
     if not paused:
@@ -901,7 +1016,7 @@ while running:
             shake_intensity = 12
             # Radial paddle damage
             for pd in paddles.values():
-                if pygame.Vector2(pd.rect.center).distance_to(ball.pos) < 150:
+                if pygame.Vector2(pd.rect.center).distance_to(ball.pos) < 150 and not getattr(pd, 'fire_resistance', False):
                     pd.shrink()
             # Explosion particles (more, and more red/orange)
             for _ in range(75):
@@ -911,26 +1026,28 @@ while running:
                 clr = random.choice([(255, 0, 0), (255, 80, 0), (255, 120, 0), (255, 160, 0), (255, 200, 0)])
                 particles.append(Particle(ball.pos.x,ball.pos.y,vel,clr,life=40))
             # Dirt-streak debris in direction of travel
-            dir_vec = ball.pos - ball.prev
-            if dir_vec.length_squared() == 0:
-                dir_vec = pygame.Vector2(0, -1)
-            else:
-                dir_vec = dir_vec.normalize()
-            for _ in range(25):
-                angle_var = random.uniform(-30, 30)
-                speed = random.uniform(3, 7) * SCALE
-                vel = dir_vec.rotate(angle_var) * speed
-                brown = random.choice([(101, 67, 33), (120, 80, 40), (140, 90, 50)])
-                size = int(random.randint(2, 4) * SCALE)
-                deb = {
-                    'pos': ball.pos.copy(),
-                    'vel': vel,
-                    'color': brown,
-                    'size': size,
-                    'friction': random.uniform(0.94, 0.985),
-                    'dig_frames': random.randint(int(15 * SCALE), int(90 * SCALE))
-                }
-                castle.debris.append(deb)
+            # DEBRIS FIX: Don't create debris during paddle intro animations
+            if not intro_active:
+                dir_vec = ball.pos - ball.prev
+                if dir_vec.length_squared() == 0:
+                    dir_vec = pygame.Vector2(0, -1)
+                else:
+                    dir_vec = dir_vec.normalize()
+                for _ in range(25):
+                    angle_var = random.uniform(-30, 30)
+                    speed = random.uniform(3, 7) * SCALE
+                    vel = dir_vec.rotate(angle_var) * speed
+                    brown = random.choice([(101, 67, 33), (120, 80, 40), (140, 90, 50)])
+                    size = int(random.randint(2, 4) * SCALE)
+                    deb = {
+                        'pos': ball.pos.copy(),
+                        'vel': vel,
+                        'color': brown,
+                        'size': size,
+                        'friction': random.uniform(0.94, 0.985),
+                        'dig_frames': random.randint(int(15 * SCALE), int(90 * SCALE))
+                    }
+                    castle.debris.append(deb)
             continue
 
         # Generic slow-speed explosion for any other projectile (not red fireball)
@@ -946,22 +1063,24 @@ while running:
             balls.remove(ball)
 
             # Spawn dirt-streak debris that digs into the ground
-            debris_count = 25
-            for _ in range(debris_count):
-                angle_var = random.uniform(-30, 30)
-                speed = random.uniform(3, 7) * SCALE
-                vel = dir_vec.rotate(angle_var) * speed
-                brown = random.choice([(101, 67, 33), (120, 80, 40), (140, 90, 50)])
-                size = int(random.randint(2, 4) * SCALE)
-                deb = {
-                    'pos': ball.pos.copy(),
-                    'vel': vel,
-                    'color': brown,
-                    'size': size,
-                    'friction': random.uniform(0.94, 0.985),
-                    'dig_frames': random.randint(int(15 * SCALE), int(90 * SCALE))
-                }
-                castle.debris.append(deb)
+            # DEBRIS FIX: Don't create debris during paddle intro animations
+            if not intro_active:
+                debris_count = 25
+                for _ in range(debris_count):
+                    angle_var = random.uniform(-30, 30)
+                    speed = random.uniform(3, 7) * SCALE
+                    vel = dir_vec.rotate(angle_var) * speed
+                    brown = random.choice([(101, 67, 33), (120, 80, 40), (140, 90, 50)])
+                    size = int(random.randint(2, 4) * SCALE)
+                    deb = {
+                        'pos': ball.pos.copy(),
+                        'vel': vel,
+                        'color': brown,
+                        'size': size,
+                        'friction': random.uniform(0.94, 0.985),
+                        'dig_frames': random.randint(int(15 * SCALE), int(90 * SCALE))
+                    }
+                    castle.debris.append(deb)
 
             # Small camera shake for visual feedback
             trigger_shake(6)
@@ -1038,7 +1157,8 @@ while running:
                         if not hasattr(p, 'fireball_immunity_until') or now >= getattr(p, 'fireball_immunity_until', 0):
                             if power_timers.get(side, [None,0])[0] != 'widen':
                                 old_width = p.width
-                                p.shrink()
+                                if not getattr(p, 'fire_resistance', False):
+                                    p.shrink()
                                 # Play paddle damage sound for fireball
                                 if 'paddle_damage' in sounds:
                                     sounds['paddle_damage'].play()
@@ -1095,21 +1215,23 @@ while running:
                                 dir_vec = pygame.Vector2(0, -1)
                             else:
                                 dir_vec = dir_vec.normalize()
-                            for _ in range(25):
-                                angle_var = random.uniform(-30, 30)
-                                speed = random.uniform(3, 7) * SCALE
-                                vel = dir_vec.rotate(angle_var) * speed
-                                brown = random.choice([(101, 67, 33), (120, 80, 40), (140, 90, 50)])
-                                size = int(random.randint(2, 4) * SCALE)
-                                deb = {
-                                    'pos': ball.pos.copy(),
-                                    'vel': vel,
-                                    'color': brown,
-                                    'size': size,
-                                    'friction': random.uniform(0.94, 0.985),
-                                    'dig_frames': random.randint(int(15 * SCALE), int(90 * SCALE))
-                                }
-                                castle.debris.append(deb)
+                            # DEBRIS FIX: Don't create debris during paddle intro animations
+                            if not intro_active:
+                                for _ in range(25):
+                                    angle_var = random.uniform(-30, 30)
+                                    speed = random.uniform(3, 7) * SCALE
+                                    vel = dir_vec.rotate(angle_var) * speed
+                                    brown = random.choice([(101, 67, 33), (120, 80, 40), (140, 90, 50)])
+                                    size = int(random.randint(2, 4) * SCALE)
+                                    deb = {
+                                        'pos': ball.pos.copy(),
+                                        'vel': vel,
+                                        'color': brown,
+                                        'size': size,
+                                        'friction': random.uniform(0.94, 0.985),
+                                        'dig_frames': random.randint(int(15 * SCALE), int(90 * SCALE))
+                                    }
+                                    castle.debris.append(deb)
                             break
                 else:
                     # Grow paddle if widen is active
@@ -1134,8 +1256,12 @@ while running:
                             ball.is_power = False
                             ball.color = RED
                         else:
+                            from upgrade_effects import get_unlocked_potions
+                            available = get_unlocked_potions()
+                            if not available:
+                                continue  # no potions unlocked yet
                             ball.is_power = True
-                            ball.power_type = random.choice(['widen','sticky','barrier'])
+                            ball.power_type = random.choice(available)
                             ball.color = YELLOW
                     elif power_timers.get(side, [None,0])[0] == 'pierce':
                         ball.pierce = True
@@ -1218,26 +1344,28 @@ while running:
                             color = random.choice([(255,0,0),(255,80,0),(255,120,0),(255,160,0),(255,200,0)])
                             particles.append(Particle(ball.pos.x,ball.pos.y,vel,color,30))
                         # Dirt-streak debris in direction of travel
-                        dir_vec = ball.pos - ball.prev
-                        if dir_vec.length_squared() == 0:
-                            dir_vec = pygame.Vector2(0, -1)
-                        else:
-                            dir_vec = dir_vec.normalize()
-                        for _ in range(25):
-                            angle_var = random.uniform(-30, 30)
-                            speed = random.uniform(3, 7) * SCALE
-                            vel = dir_vec.rotate(angle_var) * speed
-                            brown = random.choice([(101, 67, 33), (120, 80, 40), (140, 90, 50)])
-                            size = int(random.randint(2, 4) * SCALE)
-                            deb = {
-                                'pos': ball.pos.copy(),
-                                'vel': vel,
-                                'color': brown,
-                                'size': size,
-                                'friction': random.uniform(0.94, 0.985),
-                                'dig_frames': random.randint(int(15 * SCALE), int(90 * SCALE))
-                            }
-                            castle.debris.append(deb)
+                        # DEBRIS FIX: Don't create debris during paddle intro animations
+                        if not intro_active:
+                            dir_vec = ball.pos - ball.prev
+                            if dir_vec.length_squared() == 0:
+                                dir_vec = pygame.Vector2(0, -1)
+                            else:
+                                dir_vec = dir_vec.normalize()
+                            for _ in range(25):
+                                angle_var = random.uniform(-30, 30)
+                                speed = random.uniform(3, 7) * SCALE
+                                vel = dir_vec.rotate(angle_var) * speed
+                                brown = random.choice([(101, 67, 33), (120, 80, 40), (140, 90, 50)])
+                                size = int(random.randint(2, 4) * SCALE)
+                                deb = {
+                                    'pos': ball.pos.copy(),
+                                    'vel': vel,
+                                    'color': brown,
+                                    'size': size,
+                                    'friction': random.uniform(0.94, 0.985),
+                                    'dig_frames': random.randint(int(15 * SCALE), int(90 * SCALE))
+                                }
+                                castle.debris.append(deb)
                         break
                     else:
                         ball.pos += ball.vel*0.1
@@ -1326,26 +1454,28 @@ while running:
                             color = random.choice([(255,0,0),(255,80,0),(255,120,0),(255,160,0),(255,200,0)])
                             particles.append(Particle(ball.pos.x,ball.pos.y,vel,color,30))
                         # Dirt-streak debris in direction of travel
-                        dir_vec = ball.pos - ball.prev
-                        if dir_vec.length_squared() == 0:
-                            dir_vec = pygame.Vector2(0, -1)
-                        else:
-                            dir_vec = dir_vec.normalize()
-                        for _ in range(25):
-                            angle_var = random.uniform(-30, 30)
-                            speed = random.uniform(3, 7) * SCALE
-                            vel = dir_vec.rotate(angle_var) * speed
-                            brown = random.choice([(101, 67, 33), (120, 80, 40), (140, 90, 50)])
-                            size = int(random.randint(2, 4) * SCALE)
-                            deb = {
-                                'pos': ball.pos.copy(),
-                                'vel': vel,
-                                'color': brown,
-                                'size': size,
-                                'friction': random.uniform(0.94, 0.985),
-                                'dig_frames': random.randint(int(15 * SCALE), int(90 * SCALE))
-                            }
-                            castle.debris.append(deb)
+                        # DEBRIS FIX: Don't create debris during paddle intro animations
+                        if not intro_active:
+                            dir_vec = ball.pos - ball.prev
+                            if dir_vec.length_squared() == 0:
+                                dir_vec = pygame.Vector2(0, -1)
+                            else:
+                                dir_vec = dir_vec.normalize()
+                            for _ in range(25):
+                                angle_var = random.uniform(-30, 30)
+                                speed = random.uniform(3, 7) * SCALE
+                                vel = dir_vec.rotate(angle_var) * speed
+                                brown = random.choice([(101, 67, 33), (120, 80, 40), (140, 90, 50)])
+                                size = int(random.randint(2, 4) * SCALE)
+                                deb = {
+                                    'pos': ball.pos.copy(),
+                                    'vel': vel,
+                                    'color': brown,
+                                    'size': size,
+                                    'friction': random.uniform(0.94, 0.985),
+                                    'dig_frames': random.randint(int(15 * SCALE), int(90 * SCALE))
+                                }
+                                castle.debris.append(deb)
                         break
                     else:
                         ball.pos += ball.vel * 0.1
@@ -1419,6 +1549,13 @@ while running:
     for part in particles:
         part.draw(scene_surf)
 
+    # Draw paddle tooltips (after paddles are drawn, before blit to screen)
+    for tooltip in paddle_tooltips[:]:
+        tooltip.update(events)
+        tooltip.draw(scene_surf)
+        if tooltip.done:
+            paddle_tooltips.remove(tooltip)
+
     # Draw hearts after castle so they appear on top of walls but under HUD
     draw_hearts(scene_surf)
     
@@ -1482,13 +1619,23 @@ while running:
 
     # draw / update paddle intro animations on top of scene
     for intro in intros[:]:
-        # EDGE CASE FIX: Ensure consistent timing and prevent zero delta time
         ms_clamped = max(1, min(ms, 100))  # Minimum 1ms, maximum 100ms
         if intro.update(ms_clamped):
             # intro finished – activate paddle
             paddles[intro.side] = Paddle(intro.side)
             intros.remove(intro)
+            # --- Schedule tooltip for this paddle after a delay ---
+            show_time = pygame.time.get_ticks() + 1200  # 1.2s after intro
+            pending_tooltips.append((intro.side, paddles[intro.side], show_time))
         intro.draw(screen)
+
+    # Show any pending tooltips whose time has arrived
+    now = pygame.time.get_ticks()
+    for item in pending_tooltips[:]:
+        side, paddle_ref, show_time = item
+        if now >= show_time:
+            paddle_tooltips.append(PaddleTooltip(side, paddle_ref))
+            pending_tooltips.remove(item)
 
     # ---------------- Wave announcement text ----------------
     if wave_text_time > 0 and wave_text and wave_transition['state']=='idle':
@@ -1668,7 +1815,10 @@ while running:
                 chosen_music = MUSIC_PATH
                 if next_wave >= 2 and WAVE_MUSIC_FILES:
                     import random
-                    chosen_music = random.choice(WAVE_MUSIC_FILES)
+                    available_tracks = [f for f in WAVE_MUSIC_FILES if f != last_wave_music]
+                    if not available_tracks:
+                        available_tracks = WAVE_MUSIC_FILES  # fallback if only one track
+                    chosen_music = random.choice(available_tracks)
                 wave_transition['next_castle'] = next_castle
                 wave_transition['next_music'] = chosen_music
 
@@ -1698,6 +1848,7 @@ while running:
                     pygame.mixer.music.load(wave_transition['next_music'])
                     pygame.mixer.music.set_volume(0.6)
                     pygame.mixer.music.play(-1)
+                    last_wave_music = wave_transition['next_music']  # track last to prevent repeats
                 except Exception as e:
                     print(f"[Audio] Failed to load wave music: {e}")
         wave_transition.update({
@@ -1734,15 +1885,15 @@ while running:
         # --- NEW: If music ends during a wave, pick a new random song (not the same as last) ---
         if wave >= 2 and WAVE_MUSIC_FILES and not pygame.mixer.music.get_busy():
             import random
-            available = [f for f in WAVE_MUSIC_FILES if f != last_wave_music]
-            if not available:
-                available = WAVE_MUSIC_FILES  # fallback if all are the same
-            chosen = random.choice(available)
+            available_tracks = [f for f in WAVE_MUSIC_FILES if f != last_wave_music]
+            if not available_tracks:
+                available_tracks = WAVE_MUSIC_FILES  # fallback if only one track
+            chosen_music = random.choice(available_tracks)
             try:
-                pygame.mixer.music.load(chosen)
+                pygame.mixer.music.load(chosen_music)
                 pygame.mixer.music.set_volume(0.6)
                 pygame.mixer.music.play(-1)
-                last_wave_music = chosen
+                last_wave_music = chosen_music  # track last to prevent repeats
             except Exception as e:
                 print(f"[Audio] Failed to load wave music: {e}")
     # --------------------------------------------------------------------
@@ -1752,11 +1903,15 @@ while running:
         # If we're on wave 2 or higher, pick a random available music file
         if wave >= 2 and WAVE_MUSIC_FILES:
             import random
-            chosen_music = random.choice(WAVE_MUSIC_FILES)
+            available_tracks = [f for f in WAVE_MUSIC_FILES if f != last_wave_music]
+            if not available_tracks:
+                available_tracks = WAVE_MUSIC_FILES  # fallback if only one track
+            chosen_music = random.choice(available_tracks)
             try:
                 pygame.mixer.music.load(chosen_music)
                 pygame.mixer.music.set_volume(0.6)
                 pygame.mixer.music.play(-1)
+                last_wave_music = chosen_music  # track last to prevent repeats
             except Exception as e:
                 print(f"[Audio] Failed to load wave music: {e}")
         else:
@@ -1793,6 +1948,7 @@ while running:
         particles    = []
         # Reset coin and store state
         clear_coins()
+        clear_hearts()
         store.close_store()
         reset_upgrade_states()
         # Update game state references after restart
@@ -1866,11 +2022,12 @@ while running:
             part.vel = orig_vel
             if part.life <= 0:
                 particles.remove(part)
-        for d in castle.debris:
-            d['pos'] += d['vel'] * SLOW_SCALE
-            d['vel'] *= d.get('friction', 0.985)
-            if d.get('size',1) <= 0:
-                castle.debris.remove(d)
+        if not intro_active:  # Do not animate debris during paddle intros
+            for d in castle.debris:
+                d['pos'] += d['vel'] * SLOW_SCALE
+                d['vel'] *= d.get('friction', 0.985)
+                if d.get('size',1) <= 0:
+                    castle.debris.remove(d)
         # Center on last block – but clamp so we never reveal whitespace
         bx, by = wave_transition['block_pos']
         # Calculate blit rect
@@ -1926,6 +2083,13 @@ while running:
             fade_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
             fade_surf.fill((0, 0, 0, fade_alpha))
             screen.blit(fade_surf, (0, 0))
+
+    # Draw paddle tooltips (after paddles are drawn)
+    for tooltip in paddle_tooltips[:]:
+        tooltip.update(events)
+        tooltip.draw(screen)
+        if tooltip.done:
+            paddle_tooltips.remove(tooltip)
 
 pygame.quit()
 sys.exit()

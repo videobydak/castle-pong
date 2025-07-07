@@ -65,7 +65,7 @@ class Store:
         self.active = False
         self.current_tab = 0
         self.scroll_offset = 0
-        self.tab_names = ["Defense", "Power", "Mystical", "Utility"]
+        self.tab_names = ["Restoration", "Upgrades", "Fortune", "Potions"]
         
         # Store state tracking
         self.wave_number = 1
@@ -99,10 +99,10 @@ class Store:
         self._load_sounds()
 
         # How many upgrade items fit on screen at once
-        self.items_per_page = 5
+        self.items_per_page = 3  # Fixed 3 items per page
 
         # Visual tuning
-        self.item_height = 80  # vertical space per upgrade row
+        self.item_height = 80  # minimum vertical space per upgrade row
 
         # Track selected item for keyboard navigation
         self.selected_item = 0
@@ -141,67 +141,52 @@ class Store:
     def _initialize_upgrades(self) -> Dict[str, List[StoreUpgrade]]:
         """Create all store upgrades organized by category."""
         upgrades = {
-            "Defense": [
+            "Restoration": [
                 StoreUpgrade("paddle_heal", "Healer's Balm", 
                            "Restore your paddle to full length", 15, 1, "consumable"),
                 StoreUpgrade("wall_repair", "Stone Mason's Kit", 
                            "Repair damaged castle wall blocks", 25, 1, "consumable"),
-                StoreUpgrade("wall_layer1", "Apprentice Fortification", 
-                           "Upgrade castle wall from rubble to basic stone", 40, 1, "single"),
-                StoreUpgrade("wall_layer2", "Master Stonework", 
-                           "Upgrade castle wall from stone to reinforced blocks", 80, 1, "single"),
-                StoreUpgrade("wall_layer3", "Legendary Masonry", 
-                           "Upgrade castle wall to impenetrable fortress grade", 150, 1, "single"),
-                StoreUpgrade("extra_life", "Phoenix Feather", 
-                           "Grants one extra chance when the wall breaks", 100, 3, "tiered"),
                 StoreUpgrade("repair_drone", "Golem Servant", 
                            "Deploy an automaton that slowly repairs wall damage", 120, 1, "single"),
-                StoreUpgrade("fire_resistance", "Wet Paddle Charm", 
-                           "Reduces fireball damage to your paddle by half", 60, 1, "single"),
+                StoreUpgrade("emergency_heal", "Angel's Grace", 
+                           "Automatically heal when paddle becomes critically small", 90, 2, "tiered"),
             ],
-            "Power": [
+            "Upgrades": [
+                StoreUpgrade("fortified_walls", "Fortified Walls", 
+                           "Upgrade your castle wall to reinforced (level 1) and then fortress grade (level 2)", 60, 2, "tiered"),
                 StoreUpgrade("paddle_width", "Giant's Grip", 
                            "Permanently widen your paddle for better deflection", 50, 5, "tiered"),
                 StoreUpgrade("paddle_agility", "Wind Walker's Grace", 
                            "Reduce paddle inertia for snappier movement", 45, 3, "tiered"),
-                StoreUpgrade("coin_boost", "Fortune's Favor", 
-                           "Increase coins earned per block destroyed", 70, 4, "tiered"),
-                StoreUpgrade("ball_magnetism", "Lodestone Aura", 
-                           "Your paddle attracts coins from greater distance", 55, 1, "single"),
-                StoreUpgrade("multi_ball", "Mirror's Edge", 
-                           "Next cannonball splits into two upon impact", 90, 1, "consumable"),
-                StoreUpgrade("power_shot", "Titan's Might", 
-                           "Next three shots pierce through multiple blocks", 75, 1, "consumable"),
+                StoreUpgrade("fire_resistance", "Wet Paddle Charm", 
+                           "Grants complete immunity to red fireball damage", 60, 1, "single"),
             ],
-            "Mystical": [
+            "Fortune": [
                 StoreUpgrade("coin_multiplier", "Midas Touch", 
                            "Temporarily double all coin drops for this wave", 80, 1, "consumable"),
                 StoreUpgrade("time_slow", "Chronos Blessing", 
                            "Slow down time for 10 seconds when activated", 95, 1, "consumable"),
                 StoreUpgrade("lucky_charm", "Rabbit's Foot", 
                            "Increase heart drop chance for this wave", 40, 1, "consumable"),
-                StoreUpgrade("shield_barrier", "Arcane Ward", 
-                           "Creates magical barrier that stops enemy projectiles", 110, 1, "consumable"),
-                StoreUpgrade("block_vision", "Oracle's Sight", 
-                           "Reveals weak points in castle blocks for bonus damage", 65, 1, "consumable"),
-                StoreUpgrade("ghost_paddle", "Spectral Form", 
-                           "Paddle becomes ethereal, passing through enemy shots", 85, 1, "consumable"),
+                StoreUpgrade("coin_boost", "Fortune's Favor", 
+                           "Increase coins earned per block destroyed", 70, 4, "tiered"),
+                StoreUpgrade("lodestone_magnetism", "Lodestone Magnetism", 
+                           "Coins are attracted to balls from a distance (level 1), from even farther (level 2), and will drift toward balls automatically (level 3)", 55, 3, "tiered"),
             ],
-            "Utility": [
-                StoreUpgrade("auto_collect", "Treasure Hunter's Instinct", 
-                           "Automatically collect coins when cannonball gets close", 70, 3, "tiered"),
-                StoreUpgrade("coin_radius", "Merchant's Reach", 
-                           "Increase coin collection range significantly", 50, 1, "single"),
-                StoreUpgrade("score_bonus", "Glory Seeker's Pride", 
-                           "Earn bonus points for stylish block destruction", 35, 3, "tiered"),
-                StoreUpgrade("wave_preview", "Strategic Foresight", 
-                           "See preview of next wave's castle layout", 60, 1, "single"),
-                StoreUpgrade("emergency_heal", "Angel's Grace", 
-                           "Automatically heal when paddle becomes critically small", 90, 2, "tiered"),
-                StoreUpgrade("coin_magnet", "Prospector's Dream", 
-                           "All coins slowly drift toward your paddle", 75, 1, "single"),
+            "Potions": [
+                StoreUpgrade("potion_widen", "Widen", 
+                           "Unlocks the chance to spawn a Widen potion (enlarges paddle on pickup)", 40, 1, "single"),
+                StoreUpgrade("potion_sticky", "Sticky", 
+                           "Unlocks the chance to spawn a Sticky potion (balls stick to paddle until launched)", 35, 1, "single"),
+                StoreUpgrade("potion_barrier", "Barrier", 
+                           "Unlocks the chance to spawn a Barrier potion (temporary shield around playfield)", 50, 1, "single"),
+                StoreUpgrade("potion_pierce", "Pierce", 
+                           "Unlocks the chance to spawn a Pierce potion (balls pass through blocks)", 60, 1, "single"),
+                StoreUpgrade("potion_through", "Alchemy", 
+                           "Unlocks the chance to spawn an Alchemy potion (converts regular cannonballs into potions or fireballs when hit by the paddle)", 55, 1, "single"),
             ]
         }
+        self.tab_names = ["Restoration", "Upgrades", "Fortune", "Potions"]
         return upgrades
 
     def open_store(self, wave_number: int):
@@ -212,10 +197,6 @@ class Store:
         self.scroll_offset = 0
         self.selected_item = 0
         self.hover_item = None
-        # Recompute how many upgrade rows fit on screen with current item_height
-        store_height = HEIGHT * 2 // 3
-        content_height = store_height - 200
-        self.items_per_page = max(1, content_height // self.item_height)
 
     def close_store(self):
         """Close the store interface."""
@@ -244,43 +225,61 @@ class Store:
                 if self.selected_item > 0:
                     self.selected_item -= 1
                 else:
-                    # If at top, scroll up if possible
+                    current_upgrades = self.upgrades[self.tab_names[self.current_tab]]
+                    # If at top, go to previous page if possible, otherwise wrap to last page
                     if self.scroll_offset > 0:
                         self.scroll_offset -= 1
-                    # else wrap to last visible item
+                        self.selected_item = self.items_per_page - 1
                     else:
-                        current_upgrades = self.upgrades[self.tab_names[self.current_tab]]
-                        visible = min(self.items_per_page, len(current_upgrades) - self.scroll_offset)
-                        self.selected_item = max(visible - 1, 0)
+                        # Jump to the last page
+                        max_pages = (len(current_upgrades) - 1) // self.items_per_page
+                        self.scroll_offset = max_pages
+                        self.selected_item = min(self.items_per_page - 1, len(current_upgrades) - 1 - (max_pages * self.items_per_page))
                 return True
             elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
                 current_upgrades = self.upgrades[self.tab_names[self.current_tab]]
-                visible = min(self.items_per_page, len(current_upgrades) - self.scroll_offset)
-                if self.selected_item < visible - 1:
-                    self.selected_item += 1
+                if self.selected_item < self.items_per_page - 1:
+                    # Check if there's an item at the next position
+                    start_index = self.scroll_offset * self.items_per_page
+                    if start_index + self.selected_item + 1 < len(current_upgrades):
+                        self.selected_item += 1
                 else:
-                    # If at bottom, scroll down if possible
-                    max_scroll = max(0, len(current_upgrades) - self.items_per_page)
-                    if self.scroll_offset < max_scroll:
+                    # If at bottom of current page, go to next page if possible, otherwise wrap to first page
+                    max_pages = (len(current_upgrades) - 1) // self.items_per_page
+                    if self.scroll_offset < max_pages:
                         self.scroll_offset += 1
-                    # else wrap to first item
+                        self.selected_item = 0
                     else:
+                        self.scroll_offset = 0
                         self.selected_item = 0
                 return True
             elif event.key == pygame.K_SPACE:
                 # Attempt to purchase selected item
                 current_upgrades = self.upgrades[self.tab_names[self.current_tab]]
-                idx = self.scroll_offset + self.selected_item
-                if 0 <= idx < len(current_upgrades):
-                    upgrade = current_upgrades[idx]
+                start_index = self.scroll_offset * self.items_per_page
+                item_index = start_index + self.selected_item
+                
+                if 0 <= item_index < len(current_upgrades):
+                    upgrade = current_upgrades[item_index]
                     if upgrade.can_purchase():
                         if upgrade.purchase():
                             self._apply_upgrade_effect(upgrade)
                             # Find the item_rect for the selected item to spawn particles
                             store_rect = pygame.Rect(WIDTH // 8, HEIGHT // 6, WIDTH * 3 // 4, HEIGHT * 2 // 3)
                             content_rect = pygame.Rect(store_rect.x + 20, store_rect.y + 140, store_rect.width - 40, store_rect.height - 200)
-                            item_y = content_rect.y + self.selected_item * self.item_height
-                            buy_button_rect = pygame.Rect(content_rect.right - 100, item_y + 5, 90, 30)
+                            
+                            # Calculate the position of the selected item
+                            current_y = content_rect.y
+                            for i in range(self.selected_item):
+                                # Calculate item height for the item at this position
+                                item = current_upgrades[start_index + i]
+                                desc_lines = self._wrap_text(self.pixel_font_small, item.description, content_rect.width - 200)
+                                desc_height = len(desc_lines) * 18
+                                required_height = 8 + 30 + desc_height + 12 + 20 + 10
+                                item_height = required_height
+                                current_y += item_height
+                            
+                            buy_button_rect = pygame.Rect(content_rect.right - 100, current_y + 5, 90, 30)
                             self._create_purchase_particles(buy_button_rect.center)
                             if self.purchase_sound:
                                 self.purchase_sound.play()
@@ -308,8 +307,9 @@ class Store:
                 self.scroll_offset = max(0, self.scroll_offset - 1)
                 self.selected_item = 0
             elif event.y < 0:
-                max_scroll = max(0, len(self.upgrades[self.tab_names[self.current_tab]]) - self.items_per_page)
-                self.scroll_offset = min(max_scroll, self.scroll_offset + 1)
+                current_upgrades = self.upgrades[self.tab_names[self.current_tab]]
+                max_pages = (len(current_upgrades) - 1) // self.items_per_page
+                self.scroll_offset = min(max_pages, self.scroll_offset + 1)
                 self.selected_item = 0
             return True
         
@@ -341,11 +341,25 @@ class Store:
                                       store_rect.width - 40, store_rect.height - 200)
 
             current_upgrades = self.upgrades[self.tab_names[self.current_tab]]
-            item_height = self.item_height
+            
+            # Fixed pagination: show exactly 3 items per page
+            start_index = self.scroll_offset * self.items_per_page
+            end_index = min(start_index + self.items_per_page, len(current_upgrades))
+            items_to_show = current_upgrades[start_index:end_index]
+            
+            # Calculate item heights for the items we're showing
+            item_heights = []
+            for upgrade in items_to_show:
+                desc_lines = self._wrap_text(self.pixel_font_small, upgrade.description, content_rect.width - 200)
+                desc_height = len(desc_lines) * 18  # 18px per line
+                required_height = 8 + 30 + desc_height + 12 + 20 + 10
+                item_heights.append(required_height)
 
-            for i, upgrade in enumerate(current_upgrades[self.scroll_offset:self.scroll_offset + self.items_per_page]):
-                item_y = content_rect.y + i * item_height
-                buy_button_rect = pygame.Rect(content_rect.right - 100, item_y + 5, 90, 30)
+            # Check buy button clicks
+            current_y = content_rect.y
+            for i, upgrade in enumerate(items_to_show):
+                item_height = item_heights[i]
+                buy_button_rect = pygame.Rect(content_rect.right - 100, current_y + 5, 90, 30)
 
                 if buy_button_rect.collidepoint(pos) and upgrade.can_purchase():
                     if upgrade.purchase():
@@ -360,6 +374,8 @@ class Store:
                             self.error_sound.play()
                         self._add_feedback("Not enough coins!", (220, 80, 80))
                         return True
+                
+                current_y += item_height
         
         # Check close button
         close_button = pygame.Rect(WIDTH - 100, 50, 80, 40)
@@ -380,13 +396,28 @@ class Store:
                                    store_rect.width - 40, store_rect.height - 200)
         if content_rect.collidepoint(pos):
             current_upgrades = self.upgrades[self.tab_names[self.current_tab]]
-            item_height = self.item_height
             
-            for i, upgrade in enumerate(current_upgrades[self.scroll_offset:self.scroll_offset + self.items_per_page]):
-                item_y = content_rect.y + i * item_height
-                if item_y <= mouse_y <= item_y + item_height:
+            # Fixed pagination: show exactly 3 items per page
+            start_index = self.scroll_offset * self.items_per_page
+            end_index = min(start_index + self.items_per_page, len(current_upgrades))
+            items_to_show = current_upgrades[start_index:end_index]
+            
+            # Calculate item heights for the items we're showing
+            item_heights = []
+            for upgrade in items_to_show:
+                desc_lines = self._wrap_text(self.pixel_font_small, upgrade.description, content_rect.width - 200)
+                desc_height = len(desc_lines) * 18  # 18px per line
+                required_height = 8 + 30 + desc_height + 12 + 20 + 10
+                item_heights.append(required_height)
+            
+            # Check hover on items
+            current_y = content_rect.y
+            for i, upgrade in enumerate(items_to_show):
+                item_height = item_heights[i]
+                if current_y <= mouse_y <= current_y + item_height:
                     self.hover_item = upgrade
                     break
+                current_y += item_height
 
     def _apply_upgrade_effect(self, upgrade: StoreUpgrade):
         """Apply the effect of a purchased upgrade to the game."""
@@ -471,7 +502,7 @@ class Store:
         pygame.draw.rect(screen, (255, 255, 255), store_rect, 3)
         
         # Title
-        title_text = self.pixel_font_title.render(f"ARMORY - Wave {self.wave_number}", True, (255, 215, 0))
+        title_text = self.pixel_font_title.render(f"SHOP - Wave {self.wave_number}", True, (255, 215, 0))
         title_rect = title_text.get_rect(center=(WIDTH // 2, store_rect.y + 30))
         screen.blit(title_text, title_rect)
         
@@ -487,13 +518,8 @@ class Store:
         
         # Instructions
         instruction_font = self.pixel_font_small
-        instructions = [
-            "Scroll / Arrows / Click Tabs to Navigate  |  Click Cost to Buy  |  ESC to Close",
-            "Single: One-time  |  Tiered: Multi-level  |  Consumable: Wave Use"
-        ]
-        for i, instruction in enumerate(instructions):
-            instruction_text = instruction_font.render(instruction, True, (200, 200, 200))
-            screen.blit(instruction_text, (store_rect.x + 20, store_rect.bottom - 40 + i * 20))
+        instruction_text = instruction_font.render("Arrow Keys to Navigate | Spacebar to Buy", True, (200, 200, 200))
+        screen.blit(instruction_text, (store_rect.x + 20, store_rect.bottom - 40))
         
         # Draw feedback messages (fade out)
         for idx, msg in enumerate(self.feedback_msgs):
@@ -507,8 +533,7 @@ class Store:
         close_button = pygame.Rect(WIDTH - 100, 50, 80, 40)
         pygame.draw.rect(screen, (150, 50, 50), close_button)
         pygame.draw.rect(screen, (255, 255, 255), close_button, 2)
-        close_font = pygame.font.SysFont(None, 32, bold=True)
-        close_text = close_font.render("CLOSE", True, (255, 255, 255))
+        close_text = self.pixel_font_small.render("CLOSE", True, (255, 255, 255))
         close_rect = close_text.get_rect(center=close_button.center)
         screen.blit(close_text, close_rect)
         
@@ -551,12 +576,26 @@ class Store:
                                  store_rect.width - 40, store_rect.height - 200)
         
         current_upgrades = self.upgrades[self.tab_names[self.current_tab]]
-        item_height = self.item_height
         
-        # Draw upgrades
-        for i, upgrade in enumerate(current_upgrades[self.scroll_offset:self.scroll_offset + self.items_per_page]):
-            item_y = content_rect.y + i * item_height
-            item_rect = pygame.Rect(content_rect.x, item_y, content_rect.width, item_height - 5)
+        # Fixed pagination: show exactly 3 items per page
+        start_index = self.scroll_offset * self.items_per_page
+        end_index = min(start_index + self.items_per_page, len(current_upgrades))
+        items_to_show = current_upgrades[start_index:end_index]
+        
+        # Calculate item heights for the items we're showing
+        item_heights = []
+        for upgrade in items_to_show:
+            desc_lines = self._wrap_text(self.pixel_font_small, upgrade.description, content_rect.width - 200)
+            desc_height = len(desc_lines) * 18  # 18px per line
+            # Base height: 8 (name) + 30 (spacing) + desc_height + 12 (spacing) + 20 (level) + 10 (padding)
+            required_height = 8 + 30 + desc_height + 12 + 20 + 10
+            item_heights.append(required_height)
+        
+        # Draw upgrades with calculated heights
+        current_y = content_rect.y
+        for i, upgrade in enumerate(items_to_show):
+            item_height = item_heights[i]
+            item_rect = pygame.Rect(content_rect.x, current_y, content_rect.width, item_height - 5)
             
             # Item background
             if upgrade == self.hover_item or i == self.selected_item:
@@ -569,35 +608,51 @@ class Store:
             
             # Item details
             self._draw_upgrade_item(screen, item_rect, upgrade)
+            
+            current_y += item_height
         
-        # Scroll indicators
-        if self.scroll_offset > 0:
-            arrow_up = "▲ More above"
-            up_text = pygame.font.SysFont(None, 24).render(arrow_up, True, (255, 255, 255))
-            screen.blit(up_text, (content_rect.centerx - up_text.get_width()//2, content_rect.y - 25))
-        
-        if self.scroll_offset + self.items_per_page < len(current_upgrades):
-            arrow_down = "▼ More below"
-            down_text = pygame.font.SysFont(None, 24).render(arrow_down, True, (255, 255, 255))
-            screen.blit(down_text, (content_rect.centerx - down_text.get_width()//2, content_rect.bottom + 5))
+        # Scroll indicators with item ranges
+        total_items = len(current_upgrades)
+        if total_items > 0:
+            start_item = start_index + 1
+            end_item = end_index
+            
+            # Always show the current range below the last visible item
+            range_text = f"{start_item} - {end_item} of {total_items}"
+            range_text_surface = self.pixel_font_small.render(range_text, True, (200, 200, 200))
+            # Position below the last visible item
+            last_item_bottom = current_y
+            screen.blit(range_text_surface, (content_rect.centerx - range_text_surface.get_width()//2, last_item_bottom + 10))
 
     def _draw_upgrade_item(self, screen: pygame.Surface, item_rect: pygame.Rect, upgrade: StoreUpgrade):
         """Draw a single upgrade item."""
-        # Name using pixel font
-        name_color = (255, 215, 0) if upgrade.can_purchase() else (128, 128, 128)
-        max_name_w = item_rect.width - 120
-        display_name = self._truncate_text(self.pixel_font_large, upgrade.name, max_name_w)
-        name_text = self.pixel_font_large.render(display_name, True, name_color)
-        screen.blit(name_text, (item_rect.x + 10, item_rect.y + 8))
+        # Draw a single upgrade row (icon, name, description, cost, buy button)
+        font = self.pixel_font_medium
+        small_font = self.pixel_font_small
         
-        # Description smaller pixel font
-        desc_color = (200, 200, 200)
-        max_desc_w = item_rect.width - 120
-        display_desc = self._truncate_text(self.pixel_font_small, upgrade.description, max_desc_w)
-        desc_text = self.pixel_font_small.render(display_desc, True, desc_color)
-        screen.blit(desc_text, (item_rect.x + 10, item_rect.y + 38))
+        # Calculate positions with proper spacing
+        name_y = item_rect.y + 8
+        desc_start_y = name_y + 30  # More space after name
+        desc_line_height = 18
         
-        # Level/status indicator
+        # Name
+        name_text = font.render(upgrade.name, True, (255, 255, 255))
+        screen.blit(name_text, (item_rect.x + 10, name_y))
+        
+        # Description (multi-line wrap)
+        desc_max_width = item_rect.width - 180
+        desc_lines = self._wrap_text(small_font, upgrade.description, desc_max_width)
+        
+        # Calculate description height
+        desc_height = len(desc_lines) * desc_line_height
+        
+        for i, line in enumerate(desc_lines):
+            desc_text = small_font.render(line, True, (200, 200, 200))
+            screen.blit(desc_text, (item_rect.x + 10, desc_start_y + i * desc_line_height))
+        
+        # Level/status indicator - position after description with spacing
+        level_y = desc_start_y + desc_height + 12  # Extra spacing after description
+        
         if upgrade.upgrade_type == "tiered":
             level_text = f"Level {upgrade.current_level}/{upgrade.max_level}"
         elif upgrade.upgrade_type == "single":
@@ -606,7 +661,7 @@ class Store:
             level_text = f"Used {upgrade.current_level} times"
         
         level_surface = self.pixel_font_small.render(level_text, True, (150, 150, 150))
-        screen.blit(level_surface, (item_rect.x + 10, item_rect.bottom - 20))
+        screen.blit(level_surface, (item_rect.x + 10, level_y))
         
         # Price and buy button
         if upgrade.can_purchase():
@@ -647,14 +702,24 @@ class Store:
             'max_life': 90,
         })
 
-    def _truncate_text(self, font, text: str, max_width: int) -> str:
-        """Return text truncated with ellipsis if it exceeds *max_width*."""
-        if font.size(text)[0] <= max_width:
-            return text
-        ellipsis = "..."
-        while text and font.size(text + ellipsis)[0] > max_width:
-            text = text[:-1]
-        return text + ellipsis
+    def _wrap_text(self, font, text: str, max_width: int):
+        # Wrap text into a list of lines that fit within max_width
+        words = text.split()
+        lines = []
+        current = ''
+        for word in words:
+            test = current + (' ' if current else '') + word
+            if font.size(test)[0] <= max_width:
+                current = test
+            else:
+                if current:
+                    lines.append(current)
+                current = word
+        if current:
+            lines.append(current)
+        return lines
+
+
 
     def set_game_state(self, paddles, player_wall, castle):
         """Set game state references for applying effects."""

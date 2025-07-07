@@ -358,10 +358,17 @@ def set_magnetism_strength(strength: float):
         coin.magnetism_strength = strength
 
 
+def reset_coin_count():
+    """Reset the player's total coin count to zero (used for new game)."""
+    global _total_coins
+    _total_coins = 0
+
+
 def clear_coins():
-    """Clear all active coins (used for game reset)."""
+    """Clear all active coins (used for game reset). Also resets total coins."""
     global _active_coins
     _active_coins = []
+    reset_coin_count()
 
 
 # -----------------------------------------------------------------------------

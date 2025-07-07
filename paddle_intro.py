@@ -1,6 +1,7 @@
 import pygame
 import random
 import math
+import os
 
 from config import WIDTH, HEIGHT, PADDLE_THICK
 from paddle import Paddle
@@ -69,23 +70,9 @@ class PaddleIntro:
         # ---------------------------------------------------------
         #  Play celebratory chime when the intro begins (unless silent preload)
         # ---------------------------------------------------------
-        if not silent_preload:
-            try:
-                if 'paddle_intro' not in sounds:
-                    sounds['paddle_intro'] = load_sound_func('Sound Response - 8 Bit Jingles - Glide up Win')
-                    sounds['paddle_intro'].set_volume(0.4)
-                sounds['paddle_intro'].play()
-            except Exception as _aud_err:
-                # Fail silently – missing file or mixer not ready shouldn't crash game
-                print('[Audio] Paddle intro sound error:', _aud_err)
-        else:
-            # For silent preload, still load the sound but don't play it
-            try:
-                if 'paddle_intro' not in sounds:
-                    sounds['paddle_intro'] = load_sound_func('Sound Response - 8 Bit Jingles - Glide up Win')
-                    sounds['paddle_intro'].set_volume(0.4)
-            except Exception as _aud_err:
-                print('[Audio] Paddle intro sound preload error:', _aud_err)
+        self._sound_played = False
+        self._sounds = sounds
+        self._load_sound_func = load_sound_func
 
         # If this is a silent preload, immediately complete the animation
         if silent_preload:
@@ -129,6 +116,17 @@ class PaddleIntro:
         dt_ms = max(dt_ms, 1)  # Minimum 1ms to prevent division by zero or stalling
         
         self.timer += dt_ms
+
+        # Play sound after 1 second delay
+        if not self.silent_preload and not self._sound_played and self.timer >= 1000:
+            try:
+                if 'paddle_intro' not in self._sounds:
+                    self._sounds['paddle_intro'] = self._load_sound_func('Sound Response - 8 Bit Jingles - Glide up Win')
+                    self._sounds['paddle_intro'].set_volume(0.4)
+                self._sounds['paddle_intro'].play()
+            except Exception as _aud_err:
+                print('[Audio] Paddle intro sound error:', _aud_err)
+            self._sound_played = True
 
         if self.phase == 'fly_in':
             t = min(1.0, self.timer / max(1, self.FLY_TIME))  # Prevent division by zero
@@ -238,6 +236,44 @@ class PaddleIntro:
             size = random.randint(10, 14)
             self.burst.append(Particle(pos.x, pos.y, vel, color, life=120, size=size, fade=True))
 
+    def _get_instruction_text(self):
+        # Returns the correct instruction string and key icons for this paddle
+        if self.side == 'bottom':
+            return "Use ← and → to move your paddle. Spacebar to 'bump'."
+        elif self.side == 'top':
+            return "Use A and D to move your paddle. Spacebar to 'bump'."
+        elif self.side == 'left':
+            return "Use W and S to move your paddle. Spacebar to 'bump'."
+        else:  # right
+            return "Use ↑ and ↓ to move your paddle. Spacebar to 'bump'."
+
+    def _draw_speech_bubble(self, surf, text, pos, alpha=255):
+        # Draws a pixel-art style speech bubble with the given text at pos (center bottom of bubble)
+        # pos: (x, y) tuple for the tip of the bubble tail
+        font = pygame.font.Font('PressStart2P-Regular.ttf', 18) if os.path.isfile('PressStart2P-Regular.ttf') else pygame.font.SysFont('Courier New', 18, bold=True)
+        lines = text.split(". ")  # Split into lines for better fit
+        rendered = [font.render(line, True, (0,0,0)) for line in lines]
+        w = max(r.get_width() for r in rendered) + 24
+        h = sum(r.get_height() for r in rendered) + 24
+        bubble = pygame.Surface((w, h), pygame.SRCALPHA)
+        # White fill, black border
+        pygame.draw.rect(bubble, (255,255,255,int(alpha)), (0,0,w,h), border_radius=8)
+        pygame.draw.rect(bubble, (0,0,0,int(alpha)), (0,0,w,h), 3, border_radius=8)
+        # Draw text
+        y = 12
+        for r in rendered:
+            r.set_alpha(alpha)
+            bubble.blit(r, ((w - r.get_width())//2, y))
+            y += r.get_height() + 2
+        # Draw tail (triangle)
+        tail = pygame.Surface((20, 16), pygame.SRCALPHA)
+        pygame.draw.polygon(tail, (255,255,255,int(alpha)), [(10,0),(0,16),(20,16)])
+        pygame.draw.polygon(tail, (0,0,0,int(alpha)), [(10,0),(0,16),(20,16)], 2)
+        # Position bubble and tail
+        bx, by = int(pos[0] - w//2), int(pos[1])
+        surf.blit(bubble, (bx, by))
+        surf.blit(tail, (pos[0]-10, by+h-2))
+
     def draw(self, surf):
         # Skip drawing for silent preloads
         if self.silent_preload:
@@ -299,4 +335,102 @@ class PaddleIntro:
                 surf.blit(txt, self.text_rect)
             except (pygame.error, ValueError):
                 # Fallback: draw text without alpha if copy fails
-                surf.blit(self.text_surf, self.text_rect) 
+                surf.blit(self.text_surf, self.text_rect)
+
+            # (Speech bubble removed – handled by PaddleTooltip in main loop)
+
+        return
+
+    def _draw_speech_bubble(self, surf, text, pos, alpha=255):
+        # Draws a pixel-art style speech bubble with the given text at pos (center bottom of bubble)
+        # pos: (x, y) tuple for the tip of the bubble tail
+        font = pygame.font.Font('PressStart2P-Regular.ttf', 18) if os.path.isfile('PressStart2P-Regular.ttf') else pygame.font.SysFont('Courier New', 18, bold=True)
+        lines = text.split(". ")  # Split into lines for better fit
+        rendered = [font.render(line, True, (0,0,0)) for line in lines]
+        w = max(r.get_width() for r in rendered) + 24
+        h = sum(r.get_height() for r in rendered) + 24
+        bubble = pygame.Surface((w, h), pygame.SRCALPHA)
+        # White fill, black border
+        pygame.draw.rect(bubble, (255,255,255,int(alpha)), (0,0,w,h), border_radius=8)
+        pygame.draw.rect(bubble, (0,0,0,int(alpha)), (0,0,w,h), 3, border_radius=8)
+        # Draw text
+        y = 12
+        for r in rendered:
+            r.set_alpha(alpha)
+            bubble.blit(r, ((w - r.get_width())//2, y))
+            y += r.get_height() + 2
+        # Draw tail (triangle)
+        tail = pygame.Surface((20, 16), pygame.SRCALPHA)
+        pygame.draw.polygon(tail, (255,255,255,int(alpha)), [(10,0),(0,16),(20,16)])
+        pygame.draw.polygon(tail, (0,0,0,int(alpha)), [(10,0),(0,16),(20,16)], 2)
+        # Position bubble and tail
+        bx, by = int(pos[0] - w//2), int(pos[1])
+        surf.blit(bubble, (bx, by))
+        surf.blit(tail, (pos[0]-10, by+h-2))
+
+    def draw(self, surf):
+        # Skip drawing for silent preloads
+        if self.silent_preload:
+            return
+            
+        # EDGE CASE FIX: Ensure position is valid before drawing
+        if not hasattr(self, 'pos') or self.pos is None:
+            return
+
+        # Use cached paddle surface instead of creating new one every frame
+        try:
+            rot_surf = pygame.transform.rotate(self._paddle_surf, self.angle)
+            rot_rect = rot_surf.get_rect(center=(int(self.pos.x), int(self.pos.y)))
+        except (ValueError, OverflowError):
+            # Handle potential rotation errors on first frame
+            rot_surf = self._paddle_surf
+            rot_rect = rot_surf.get_rect(center=(int(self.pos.x), int(self.pos.y)))
+
+        # draw radial burst particles (purple swirling and fluttering)
+        for p in self.burst:
+            p.draw(surf)
+
+        surf.blit(rot_surf, rot_rect)
+
+        # Flash NEW PADDLE text during spin phase and fade out on exit
+        if self.phase in ('spin', 'fly_out'):  # still show text during exit, but banner only in spin
+            phase_t = (min(1.0, self.timer / max(1, self.SPIN_TIME)) if self.phase=='spin'
+                        else min(1.0, self.timer / max(1, self.EXIT_TIME)))
+
+            if self.phase == 'spin':
+                # pulsing alpha
+                alpha = int(200 + 55 * math.sin(self.timer / 100))
+            else:  # fly_out – fade
+                alpha = int(255 * (1 - phase_t))
+
+            # --- sweeping white banner behind text (spin phase only) ---
+            banner_height = self.text_rect.height + 14
+            if self.phase == 'spin':
+                # --- sweeping white banner behind text (spin phase only) ---
+                if phase_t < 0.2:  # sweep in
+                    sweep_t = phase_t / 0.2
+                    banner_x = -WIDTH + sweep_t * WIDTH
+                elif phase_t > 0.8:  # sweep out
+                    sweep_t = (phase_t - 0.8) / 0.2
+                    banner_x = sweep_t * WIDTH
+                else:  # hold
+                    banner_x = 0
+
+                banner_rect = pygame.Rect(int(banner_x), self.text_rect.centery - banner_height//2, WIDTH, banner_height)
+                banner_surf = pygame.Surface((banner_rect.width, banner_rect.height), pygame.SRCALPHA)
+                # add subtle alpha for streaky look
+                banner_surf.fill((255,255,255,230))
+                surf.blit(banner_surf, banner_rect)
+
+            # EDGE CASE FIX: Safer text surface handling
+            try:
+                txt = self.text_surf.copy()
+                txt.set_alpha(max(0, min(255, alpha)))  # Clamp alpha to valid range
+                surf.blit(txt, self.text_rect)
+            except (pygame.error, ValueError):
+                # Fallback: draw text without alpha if copy fails
+                surf.blit(self.text_surf, self.text_rect)
+
+            # (Speech bubble removed – handled by PaddleTooltip in main loop)
+
+        return 
