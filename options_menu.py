@@ -390,17 +390,17 @@ class OptionsMenu:
         YELLOW_BG = YELLOW
         BLACK_TEXT = (0, 0, 0)
 
-        # INVERTED: When value is True, OFF is yellow; when value is False, ON is yellow
+        # Corrected: When value is True, ON is yellow; when value is False, OFF is yellow
         if value:
-            on_bg_color = GREY_BG
-            on_text_color = LIGHT_GREY_TEXT
-            off_bg_color = YELLOW_BG
-            off_text_color = BLACK_TEXT
-        else:
             on_bg_color = YELLOW_BG
             on_text_color = BLACK_TEXT
             off_bg_color = GREY_BG
             off_text_color = LIGHT_GREY_TEXT
+        else:
+            on_bg_color = GREY_BG
+            on_text_color = LIGHT_GREY_TEXT
+            off_bg_color = YELLOW_BG
+            off_text_color = BLACK_TEXT
 
         # Draw ON button
         pygame.draw.rect(surface, on_bg_color, on_rect)
