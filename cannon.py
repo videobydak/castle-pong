@@ -228,13 +228,27 @@ class Cannon:
             # Ensure all required pitches exist in _SHOT_SOUNDS
             # (This is safe to call repeatedly; _prepare_shot_sounds will only build once)
             if shot_type == 'red':
-                _sfx = _SHOT_SOUNDS.get('0.1') or _SHOT_SOUNDS.get('normal')
+                # Play normal sound first for fireballs
+                _sfx_normal = _SHOT_SOUNDS.get('normal')
+                if _sfx_normal:
+                    _sfx_normal.play()
+                
+                # Schedule low pitch sound to play after a short delay
+                _sfx_low = _SHOT_SOUNDS.get('0.1') or _SHOT_SOUNDS.get('normal')
+                if _sfx_low:
+                    # Add delayed sound to global list for processing
+                    if not hasattr(pygame.time, '_delayed_sounds'):
+                        pygame.time._delayed_sounds = []
+                    delay_time = pygame.time.get_ticks() + 50  # 50ms delay
+                    pygame.time._delayed_sounds.append((delay_time, _sfx_low))
             elif shot_type == 'power':
                 _sfx = _SHOT_SOUNDS.get('1.9') or _SHOT_SOUNDS.get('normal')
+                if _sfx:
+                    _sfx.play()
             else:
                 _sfx = _SHOT_SOUNDS.get('normal')
-            if _sfx:
-                _sfx.play()
+                if _sfx:
+                    _sfx.play()
 
         angle_rad = math.radians(self.angle)
         direction = pygame.Vector2(math.cos(angle_rad), math.sin(angle_rad))

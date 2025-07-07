@@ -246,14 +246,18 @@ class TutorialOverlay:
     # ------------------------------------------------------------------
     def _on_play(self):
         print("[DEBUG] Play button clicked - entering loading state")
+        # First reset all game state to start fresh
+        import sys
+        _main = sys.modules['__main__']
+        if hasattr(_main, 'return_to_main_menu'):
+            # Reset everything but don't show the menu again
+            _main.return_to_main_menu(show_menu=False)
         # Enter loading state instead of immediately starting game
         self.loading = True
         self.loading_start_time = pygame.time.get_ticks()
         # Stop current menu music fadeout
         pygame.mixer.music.fadeout(400)
         # Inform main module that tutorial music should stop looping
-        import sys
-        _main = sys.modules['__main__']
         _main.tutorial_looping = False
 
     def _on_options(self):

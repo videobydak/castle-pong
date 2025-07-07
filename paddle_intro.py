@@ -8,11 +8,13 @@ from utils import Particle
 
 class PaddleIntro:
     """Handles introductory animation when a new paddle is unlocked."""
-    def __init__(self, side: str, sounds: dict, load_sound_func, intro_font):
+    def __init__(self, side: str, sounds: dict, load_sound_func, intro_font, silent_preload=False):
         self.side = side
-        # temporary paddle to get dimensions for drawing / final pos
-        tmp_pad = Paddle(side)
-        self.pad_len = tmp_pad.width if side in ('top', 'bottom') else tmp_pad.rect.height
+        self.silent_preload = silent_preload  # If True, don't play sound or show animation
+        
+        # Calculate paddle dimensions directly from constants to avoid temporary paddle creation
+        from config import PADDLE_LEN, PADDLE_MARGIN, BOTTOM_PADDLE_MARGIN
+        self.pad_len = PADDLE_LEN
         self.thickness = PADDLE_THICK
 
         # Starting position just outside the screen depending on side
@@ -27,12 +29,21 @@ class PaddleIntro:
 
         # Centre and final positions
         self.center_pos = pygame.Vector2(WIDTH // 2, HEIGHT // 2)
-        self.final_pos = pygame.Vector2(tmp_pad.rect.center)
+        # Calculate final position directly without temporary paddle
+        if side in ('top', 'bottom'):
+            if side == 'top':
+                final_y = PADDLE_MARGIN + self.thickness // 2
+            else:  # bottom
+                final_y = HEIGHT - self.thickness - BOTTOM_PADDLE_MARGIN + self.thickness // 2
+            self.final_pos = pygame.Vector2(WIDTH // 2, final_y)
+        else:  # left or right
+            final_x = PADDLE_MARGIN + self.thickness // 2 if side == 'left' else WIDTH - self.thickness - PADDLE_MARGIN + self.thickness // 2
+            self.final_pos = pygame.Vector2(final_x, HEIGHT // 2)
 
         # Animation parameters
         self.phase = 'fly_in'  # fly_in -> spin -> fly_out
         self.timer = 0  # ms within current phase
-        self.angle = 0.0  # degrees
+        self.angle = 0.0
         
         # CRITICAL FIX: Initialize position immediately to prevent flickering
         self.pos = self.start_pos.copy()
@@ -56,16 +67,32 @@ class PaddleIntro:
         self._burst_spawned = False  # flag to ensure single spawn per intro
 
         # ---------------------------------------------------------
-        #  Play celebratory chime when the intro begins
+        #  Play celebratory chime when the intro begins (unless silent preload)
         # ---------------------------------------------------------
-        try:
-            if 'paddle_intro' not in sounds:
-                sounds['paddle_intro'] = load_sound_func('Sound Response - 8 Bit Jingles - Glide up Win')
-                sounds['paddle_intro'].set_volume(0.4)
-            sounds['paddle_intro'].play()
-        except Exception as _aud_err:
-            # Fail silently – missing file or mixer not ready shouldn't crash game
-            print('[Audio] Paddle intro sound error:', _aud_err)
+        if not silent_preload:
+            try:
+                if 'paddle_intro' not in sounds:
+                    sounds['paddle_intro'] = load_sound_func('Sound Response - 8 Bit Jingles - Glide up Win')
+                    sounds['paddle_intro'].set_volume(0.4)
+                sounds['paddle_intro'].play()
+            except Exception as _aud_err:
+                # Fail silently – missing file or mixer not ready shouldn't crash game
+                print('[Audio] Paddle intro sound error:', _aud_err)
+        else:
+            # For silent preload, still load the sound but don't play it
+            try:
+                if 'paddle_intro' not in sounds:
+                    sounds['paddle_intro'] = load_sound_func('Sound Response - 8 Bit Jingles - Glide up Win')
+                    sounds['paddle_intro'].set_volume(0.4)
+            except Exception as _aud_err:
+                print('[Audio] Paddle intro sound preload error:', _aud_err)
+
+        # If this is a silent preload, immediately complete the animation
+        if silent_preload:
+            self.phase = 'completed'
+            self.timer = 0
+            self.pos = self.final_pos.copy()
+            self.angle = self._FINAL_ANGLE.get(self.side, 0)
 
     # durations (ms)
     FLY_TIME  = 1000   # was 700 – slower so players can track it
@@ -94,6 +121,10 @@ class PaddleIntro:
         return 1 + (s + 1) * t ** 3 + s * t ** 2
 
     def update(self, dt_ms):
+        # Silent preloads are already completed
+        if self.silent_preload:
+            return True  # immediately finished
+            
         # EDGE CASE FIX: Ensure minimum delta time to prevent animation issues
         dt_ms = max(dt_ms, 1)  # Minimum 1ms to prevent division by zero or stalling
         
@@ -208,10 +239,14 @@ class PaddleIntro:
             self.burst.append(Particle(pos.x, pos.y, vel, color, life=120, size=size, fade=True))
 
     def draw(self, surf):
+        # Skip drawing for silent preloads
+        if self.silent_preload:
+            return
+            
         # EDGE CASE FIX: Ensure position is valid before drawing
         if not hasattr(self, 'pos') or self.pos is None:
-            return  # Skip drawing if position not initialized
-        
+            return
+
         # Use cached paddle surface instead of creating new one every frame
         try:
             rot_surf = pygame.transform.rotate(self._paddle_surf, self.angle)

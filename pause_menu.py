@@ -30,6 +30,12 @@ class PauseMenu:
         # Track hover state separately so we can rebuild button surfaces on demand
         self._hover_states = [False] * len(self.buttons)
 
+        # Keyboard navigation – index of currently selected button
+        self.selected_index: int = 0
+        # Ensure first button shows as selected when menu opens
+        if self._hover_states:
+            self._hover_states[self.selected_index] = True
+
     def _layout_buttons(self):
         """Precompute button rectangles and text surfaces."""
         gap = 24
@@ -76,45 +82,91 @@ class PauseMenu:
         except Exception as e:
             print("[PauseMenu] Failed to open store:", e)
     def _exit(self):
-        """Return to main menu instead of quitting the game."""
+        """Return to the main menu and pause the game."""
+        import sys
+        import pygame
         try:
-            import sys
             _main = sys.modules['__main__']
+            self.active = False
+            if hasattr(_main, 'options_menu'):
+                _main.options_menu.active = False
+            if hasattr(_main, 'store'):
+                _main.store.close_store()
+            # Just show the main menu - the game should pause automatically
             if hasattr(_main, 'tutorial_overlay'):
-                # Close pause menu and activate main menu
-                self.active = False
-                # Reset the tutorial overlay to show main menu
                 _main.tutorial_overlay.active = True
                 _main.tutorial_overlay.loading = False
-                # Stop current music and restart tutorial music
-                pygame.mixer.music.fadeout(400)
-                try:
-                    pygame.mixer.music.load(_main.MUSIC_PATH)
-                    pygame.mixer.music.set_volume(0.6)
-                    pygame.mixer.music.play(-1)
-                except Exception as e:
-                    print(f"[Audio] Failed to restart tutorial music: {e}")
+                _main.tutorial_overlay.selected_index = 0
+                # Reset button hover states to prevent accidental clicks
+                for btn in _main.tutorial_overlay.buttons:
+                    btn['hover'] = False
+                # Clear any pending keyboard state to prevent spacebar from 
+                # immediately triggering the Play button
+                pygame.event.clear(pygame.KEYDOWN)
+                pygame.event.clear(pygame.KEYUP)
+            # Switch to menu music
+            pygame.mixer.music.fadeout(400)
+            try:
+                pygame.mixer.music.load(_main.MUSIC_PATH)
+                pygame.mixer.music.set_volume(0.6)
+                pygame.mixer.music.play(-1)
+            except Exception as e:
+                print(f"[Audio] Failed to restart tutorial music: {e}")
         except Exception as e:
             print("[PauseMenu] Failed to return to main menu:", e)
-            # Fallback to quit if we can't return to main menu
             pygame.quit()
             sys.exit()
 
     # ------------------------------------------------
     def toggle(self):
+        # Toggle visibility and reset keyboard navigation state when opened
         self.active = not self.active
+        if self.active:
+            # Reset selection to first button on open
+            self.selected_index = 0
+            self._hover_states = [i == 0 for i in range(len(self.buttons))]
 
     def update(self, events):
         if not self.active:
-            return
+            return False
+        
+        consumed_event = False
+        # --- Handle keyboard navigation ---
+        key_nav = False
+        for e in events:
+            if e.type == pygame.KEYDOWN:
+                consumed_event = True
+                if e.key == pygame.K_UP:
+                    self.selected_index = (self.selected_index - 1) % len(self.buttons)
+                    key_nav = True
+                elif e.key == pygame.K_DOWN:
+                    self.selected_index = (self.selected_index + 1) % len(self.buttons)
+                    key_nav = True
+                elif e.key in (pygame.K_SPACE, pygame.K_RETURN):
+                    # Activate the currently selected button
+                    _, cb = self.buttons[self.selected_index]
+                    cb()
+                    key_nav = True
+
         mouse = pygame.mouse.get_pos()
         clicked = any(e.type == pygame.MOUSEBUTTONDOWN and e.button == 1 for e in events)
+        if clicked:
+            consumed_event = True
 
         for idx, ((label, cb), box) in enumerate(zip(self.buttons, self.btn_rects)):
-            hover = box.collidepoint(mouse)
+            # If keyboard navigation was used this frame, rely solely on selected_index for hover state.
+            if key_nav:
+                hover = (idx == self.selected_index)
+            else:
+                hover = box.collidepoint(mouse)
+                # If mouse moved, update selection highlight to hover
+                if hover:
+                    self.selected_index = idx
             self._hover_states[idx] = hover
             if hover and clicked:
                 cb()
+        
+        return consumed_event
 
     def draw(self, surface):
         if not self.active:
@@ -128,12 +180,15 @@ class PauseMenu:
         surface.blit(self.title_surf, self.title_rect)
 
         # Draw each button box with pixel-art bevel and hover effect
-        for (label, _), txt_surf, box_rect, hover in zip(self.buttons, self.btn_surfs, self.btn_rects, self._hover_states):
+        for idx, ((label, _), txt_surf, box_rect, hover) in enumerate(zip(self.buttons, self.btn_surfs, self.btn_rects, self._hover_states)):
+            # Treat button as hovered if it is selected via keyboard
+            hover_or_selected = hover or (idx == self.selected_index)
+
             base_col  = (60, 60, 60)
             hover_col = (110, 110, 110)
 
             # Background
-            pygame.draw.rect(surface, hover_col if hover else base_col, box_rect)
+            pygame.draw.rect(surface, hover_col if hover_or_selected else base_col, box_rect)
             # Border (2 px)
             pygame.draw.rect(surface, (0, 0, 0), box_rect, 2)
             # Bevel effect
@@ -145,9 +200,13 @@ class PauseMenu:
             # Center text inside box
             txt_rect = txt_surf.get_rect(center=box_rect.center)
             # Replace text surface color when hovering
-            if hover:
+            if hover_or_selected:
                 txt_surf = self._render_outline(label, self.btn_font, YELLOW, (0, 0, 0), 1)
             surface.blit(txt_surf, txt_rect)
+
+            # Extra yellow border for selected button (keyboard navigation)
+            if idx == self.selected_index:
+                pygame.draw.rect(surface, YELLOW, box_rect, 4)
 
     # ----------------------------------------------------------------
     # Helper methods (copied from TutorialOverlay for consistency) ----

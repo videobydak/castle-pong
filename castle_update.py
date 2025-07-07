@@ -679,17 +679,19 @@ def update_castle(castle, dt_ms, player_score=0, paddles=None, player_wall=None,
             castle.smoke_particles.remove(s)
 
     # --- update debris ---
-    for d in castle.debris:
-        d['pos'] += d['vel']
-        # simple friction to slow down
-        d['vel'] *= d.get('friction', 0.985)
+    # Pause debris movement while paddle intro animations are active (castle._pause_rebuild flag)
+    if not getattr(castle, '_pause_rebuild', False):
+        for d in castle.debris:
+            d['pos'] += d['vel']
+            # simple friction to slow down
+            d['vel'] *= d.get('friction', 0.985)
 
-        # Handle optional shrinking for old pieces that are being phased out
-        if d.get('_shrinking'):
-            # Smoothly reduce the size until it disappears
-            d['size'] -= d.get('_shrink_speed', 0.1)
-            if d['size'] <= 0.2:
-                d['size'] = 0
+            # Handle optional shrinking for old pieces that are being phased out
+            if d.get('_shrinking'):
+                # Smoothly reduce the size until it disappears
+                d['size'] -= d.get('_shrink_speed', 0.1)
+                if d['size'] <= 0.2:
+                    d['size'] = 0
 
     # decay shake counter for rebuilding blocks
     for rec in castle.destroyed_blocks.values():

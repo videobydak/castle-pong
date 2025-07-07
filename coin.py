@@ -279,6 +279,44 @@ def update_coins(dt_frames: float, dt_ms: int, balls: list):
 
             # Play clink with progressive pitch (index = combo_count-1)
             _play_clink(_combo_count - 1)
+
+            # --- Coin pickup particle effect ---
+            try:
+                # Lazy-import to avoid circular deps
+                import sys
+                from utils import Particle
+                if "__main__" in sys.modules and hasattr(sys.modules["__main__"], "particles"):
+                    part_list = sys.modules["__main__"].particles
+                    # Radial yellow burst – cute 8-bit poof
+                    for _ in range(random.randint(8, 12)):
+                        ang   = random.uniform(0, 360)
+                        speed = random.uniform(0.5, 2.5)  # fairly floaty
+                        vel   = pygame.Vector2(speed, 0).rotate(ang)
+                        color = random.choice([ (255, 239, 150),  # pale gold
+                                              (255, 225,  90),  # bright gold
+                                              (255, 255, 200)]) # white shimmer
+                        size  = random.uniform(1.5, 3.0)
+                        life  = random.randint(22, 38)
+                        part_list.append(Particle(coin.pos.x, coin.pos.y, vel, color, life=life, size=size, fade=True))
+                    # Trailing sparkles in the ball's travel direction
+                    if 'ball' in locals() and getattr(ball, 'vel', None):
+                        dir_vec = pygame.Vector2(ball.vel)
+                        if dir_vec.length_squared() > 0:
+                            dir_vec = dir_vec.normalize()
+                            for _ in range(random.randint(4, 6)):
+                                speed  = random.uniform(0.5, 2.0)
+                                jitter = pygame.Vector2(random.uniform(-0.3, 0.3), random.uniform(-0.3, 0.3))
+                                vel    = dir_vec * speed + jitter
+                                color  = random.choice([ (255, 230, 140),
+                                                       (255, 255, 180),
+                                                       (255, 220, 100)])
+                                size   = random.uniform(1.2, 2.5)
+                                life   = random.randint(26, 40)
+                                part_list.append(Particle(coin.pos.x, coin.pos.y, vel, color, life=life, size=size, fade=True))
+            except Exception:
+                # Fail silently if particle system unavailable
+                pass
+
             _active_coins.remove(coin)
 
     # Handle combo window expiration & fade timer

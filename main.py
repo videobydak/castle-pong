@@ -339,6 +339,8 @@ intro_font = pygame.font.SysFont(None, 48, italic=True)
 # Holds active intro animations (created when a new paddle unlocks)
 intros = []
 
+# Intro system variables (no longer needed but kept for reset logic compatibility)
+
 # --- Castle build speed multiplier (ramps up when no balls) ---
 castle_build_speed_mult = 1.0  # 1.0 = normal, 5.0 = max fast
 CASTLE_BUILD_SPEED_MAX = 5.0
@@ -401,8 +403,110 @@ except pygame.error as e:
 # --- Track last played wave music to avoid repeats ---
 last_wave_music = None
 
+# --- Helper: global reset back to title screen ---------------------------------
+def return_to_main_menu(show_menu=True):
+    """Reset every mutable piece of game state so that selecting Play from the
+    title screen starts a brand-new session, identical to launching the
+    program, but pauses at the main menu until Play is clicked."""
+    global wave, castle_dim_x, castle_dim_y, castle, player_wall, paddles, balls, score
+    global particles, shake_frames, shake_intensity, flash_color, flash_timer
+    global power_timers, barrier_timer, shoot_enable_time, wave_font, wave_text
+    global wave_text_time, intro_font, intros, game_over_sfx_played, music_restart_time
+    global tutorial_looping, _tut_pause_until, last_tut_restart, BACKGROUND
+    global store, wave_transition, castle_building, castle_built_once
+    global pause_menu, options_menu, tutorial_overlay
+
+    # Core progression ---------------------------------------------------
+    wave          = 1
+    castle_dim_x  = 5
+    castle_dim_y  = 5
+    mask_w, mask_h = get_wave_mask_size(wave)
+    min_blocks = 4 if wave == 1 else 6
+    mask = generate_mask_for_difficulty(mask_w, mask_h,
+                                        get_wave_difficulty(wave),
+                                        min_wall_blocks=min_blocks)
+    castle, _ = create_castle_for_wave(wave)
+    castle.shooting_enabled = False
+
+    # Entities -----------------------------------------------------------
+    player_wall = PlayerWall()
+    paddles     = {'bottom': Paddle('bottom')}
+    balls       = []
+    particles   = []
+    score       = 0
+
+    # Collectibles / upgrades -------------------------------------------
+    clear_coins()
+    store.close_store()
+    reset_upgrade_states()
+    store.set_game_state(paddles, player_wall, castle)
+
+    # Visual & timers ----------------------------------------------------
+    shake_frames = 0
+    shake_intensity = 0
+    flash_color = None
+    flash_timer = 0
+    power_timers = {}
+    barrier_timer = 0
+    shoot_enable_time = 0
+    wave_font      = pygame.font.SysFont(None, 72, italic=True)
+    wave_text      = ""
+    wave_text_time = 0
+    intro_font     = pygame.font.SysFont(None, 48, italic=True)
+    intros         = []
+    game_over_sfx_played = False
+    music_restart_time   = 0
+    castle_building      = False
+    castle_built_once    = False
+
+    # Wave transition dictionary reset ----------------------------------
+    wave_transition.update({
+        'active': False,
+        'state': 'idle',
+        'timer': 0,
+        'block_pos': None,
+        'closeness': 0.0,
+        'fade_alpha': 0,
+        'next_castle': None,
+        'next_music': None,
+        'store_opened': False,
+    })
+
+    # Background & UI ----------------------------------------------------
+    BACKGROUND = generate_grass(WIDTH, HEIGHT)
+    pause_menu.active = False
+    options_menu.active = False  # Ensure the options overlay is closed
+    # Only show menu if requested (for Exit button, not Play button)
+    if show_menu:
+        tutorial_overlay.active = True
+        tutorial_overlay.loading = False
+        tutorial_overlay.selected_index = 0
+        # Optionally reset other menu state here if needed
+
+    # Music back to title track -----------------------------------------
+    tutorial_looping = True
+    _tut_pause_until = 0
+    last_tut_restart = pygame.time.get_ticks()
+    try:
+        pygame.mixer.music.load(MUSIC_PATH)
+        pygame.mixer.music.set_volume(0.6)
+        pygame.mixer.music.play(-1)
+    except Exception as e:
+        print(f"[Audio] Failed to reload tutorial music: {e}")
+
+    # Re-apply any saved option settings
+    options_menu._apply_settings()
+
 while running:
     ms = clock.tick(FPS)
+    
+    # Process delayed sounds (for fireball double-sounds)
+    if hasattr(pygame.time, '_delayed_sounds'):
+        current_time = pygame.time.get_ticks()
+        for delay_time, sound in pygame.time._delayed_sounds[:]:
+            if current_time >= delay_time:
+                sound.play()
+                pygame.time._delayed_sounds.remove((delay_time, sound))
 
     # -----------------------------------------------------
     #  TIME-SCALE & STATE MACHINE FOR WAVE TRANSITION
@@ -525,57 +629,59 @@ while running:
     barrier_active = (now < barrier_timer)
 
     # --- Debris digging effect: paint brown craters/trails on the grass ---
-    for d in castle.debris:
-        # Skip pieces that are not diggers
-        if 'dig_frames' not in d:
-            continue
+    # ANTI-FLICKER: Pause ground digging effects during paddle intro animations
+    if not intro_active:
+        for d in castle.debris:
+            # Skip pieces that are not diggers
+            if 'dig_frames' not in d:
+                continue
 
-        # Handle optional start delay
-        if d.get('dig_delay', 0) > 0:
-            d['dig_delay'] -= 1
-            continue  # Not yet digging
+            # Handle optional start delay
+            if d.get('dig_delay', 0) > 0:
+                d['dig_delay'] -= 1
+                continue  # Not yet digging
 
-        if d['dig_frames'] > 0:
-            x, y = int(d['pos'].x), int(d['pos'].y)
-            if 0 <= x < WIDTH and 0 <= y < HEIGHT:
-                brown_shade = random.choice([(101,67,33), (120,80,40), (140,90,50)])
-                # --- Bouncing streaks ---
-                if 'dig_bounce' not in d:
-                    # Assign at creation: 10-90% of streaks bounce
-                    d['dig_bounce'] = random.random() < random.uniform(0.1, 0.9)
-                    d['dig_bounce_freq'] = random.uniform(0.05, 0.25)  # how often to cut out
-                    d['dig_bounce_phase'] = random.uniform(0, 1)
-                # --- Fading streaks ---
-                if 'dig_fade' not in d:
-                    # Assign at creation: 10-90% of streaks fade
-                    d['dig_fade'] = random.random() < random.uniform(0.1, 0.9)
-                # Calculate fade alpha
-                alpha = 255
-                if d['dig_fade']:
-                    fade_ratio = d['dig_frames'] / max(1, d.get('dig_frames_total', d['dig_frames']))
-                    alpha = int(255 * fade_ratio)
-                # Calculate bounce (skip drawing if in "air")
-                bounce_draw = True
-                if d['dig_bounce']:
-                    t = d['dig_frames'] / max(1, d.get('dig_frames_total', d['dig_frames']))
-                    # Use a sine wave to simulate bouncing
-                    phase = d['dig_bounce_phase']
-                    freq = d['dig_bounce_freq']
-                    if (math.sin(2 * math.pi * (t * freq + phase)) > 0.3):
-                        bounce_draw = False
-                if bounce_draw:
-                    surf = BACKGROUND
-                    if alpha < 255:
-                        # Draw with alpha
-                        streak_surf = pygame.Surface((int(4*SCALE), int(4*SCALE)), pygame.SRCALPHA)
-                        pygame.draw.circle(streak_surf, brown_shade + (alpha,), (int(2*SCALE), int(2*SCALE)), int(2*SCALE))
-                        surf.blit(streak_surf, (x-int(2*SCALE), y-int(2*SCALE)))
-                    else:
-                        pygame.draw.circle(BACKGROUND, brown_shade, (x, y), int(2 * SCALE))
-            # Store total for fade
-            if 'dig_frames_total' not in d:
-                d['dig_frames_total'] = d['dig_frames']
-            d['dig_frames'] -= 1
+            if d['dig_frames'] > 0:
+                x, y = int(d['pos'].x), int(d['pos'].y)
+                if 0 <= x < WIDTH and 0 <= y < HEIGHT:
+                    brown_shade = random.choice([(101,67,33), (120,80,40), (140,90,50)])
+                    # --- Bouncing streaks ---
+                    if 'dig_bounce' not in d:
+                        # Assign at creation: 10-90% of streaks bounce
+                        d['dig_bounce'] = random.random() < random.uniform(0.1, 0.9)
+                        d['dig_bounce_freq'] = random.uniform(0.05, 0.25)  # how often to cut out
+                        d['dig_bounce_phase'] = random.uniform(0, 1)
+                    # --- Fading streaks ---
+                    if 'dig_fade' not in d:
+                        # Assign at creation: 10-90% of streaks fade
+                        d['dig_fade'] = random.random() < random.uniform(0.1, 0.9)
+                    # Calculate fade alpha
+                    alpha = 255
+                    if d['dig_fade']:
+                        fade_ratio = d['dig_frames'] / max(1, d.get('dig_frames_total', d['dig_frames']))
+                        alpha = int(255 * fade_ratio)
+                    # Calculate bounce (skip drawing if in "air")
+                    bounce_draw = True
+                    if d['dig_bounce']:
+                        t = d['dig_frames'] / max(1, d.get('dig_frames_total', d['dig_frames']))
+                        # Use a sine wave to simulate bouncing
+                        phase = d['dig_bounce_phase']
+                        freq = d['dig_bounce_freq']
+                        if (math.sin(2 * math.pi * (t * freq + phase)) > 0.3):
+                            bounce_draw = False
+                    if bounce_draw:
+                        surf = BACKGROUND
+                        if alpha < 255:
+                            # Draw with alpha
+                            streak_surf = pygame.Surface((int(4*SCALE), int(4*SCALE)), pygame.SRCALPHA)
+                            pygame.draw.circle(streak_surf, brown_shade + (alpha,), (int(2*SCALE), int(2*SCALE)), int(2*SCALE))
+                            surf.blit(streak_surf, (x-int(2*SCALE), y-int(2*SCALE)))
+                        else:
+                            pygame.draw.circle(BACKGROUND, brown_shade, (x, y), int(2 * SCALE))
+                # Store total for fade
+                if 'dig_frames_total' not in d:
+                    d['dig_frames_total'] = d['dig_frames']
+                d['dig_frames'] -= 1
 
     # — Event handling — (capture list so the overlay can see the same events)
     events = pygame.event.get()
@@ -597,10 +703,11 @@ while running:
     # Only feed events to other menus if options menu didn't consume them
     if not options_consumed_events and not store_consumed_events:
         # feed events to pause menu
-        pause_menu.update(events)
+        pause_consumed_events = pause_menu.update(events)
         
-        # feed events to tutorial overlay
-        tutorial_overlay.update(events)
+        # feed events to tutorial overlay only if pause menu didn't consume them
+        if not pause_consumed_events:
+            tutorial_overlay.update(events)
     
     # Check if loading just started
     if not prev_loading and tutorial_overlay.loading:
@@ -704,25 +811,64 @@ while running:
         for p in paddles.values():
             p.set_bump_pressed(space_down)
     
+
     # ------------------------------------------------------------------
-    # Unlock new paddles based on score milestones using intro animation
+    # ANTI-FLICKER: Frame-stable paddle intro creation
     # ------------------------------------------------------------------
-    def _queue_intro(side):
+    def _queue_intro_stable(side):
+        """Create paddle intro with frame stability to prevent flickering."""
         # Only allow paddle intros if tutorial overlay is not active
         if (not tutorial_overlay.active and
             side not in paddles and all(i.side != side for i in intros)):
-            intros.append(PaddleIntro(side, sounds, _load_sound, intro_font))
-            # quick white flash
-            global flash_color, flash_timer
-            flash_color = (255,255,255)
-            flash_timer = 200
-
+            
+            # ANTI-FLICKER: Ensure stable frame timing for intro creation
+            if intro_active:  # Don't create new intros while one is already playing
+                return
+            
+            # ANTI-FLICKER: Force a small delay after game state changes to ensure stability
+            current_frame = pygame.time.get_ticks()
+            if not hasattr(_queue_intro_stable, 'last_score_change'):
+                _queue_intro_stable.last_score_change = current_frame
+            
+            # Only create intro if score has been stable for at least 100ms
+            if current_frame - _queue_intro_stable.last_score_change < 100:
+                return
+            
+            # ANTI-FLICKER: Create intro object and validate it's fully initialized
+            try:
+                new_intro = PaddleIntro(side, sounds, _load_sound, intro_font)
+                
+                # Validate critical properties are initialized
+                if (hasattr(new_intro, 'pos') and hasattr(new_intro, 'phase') and 
+                    hasattr(new_intro, '_paddle_surf') and hasattr(new_intro, 'text_surf')):
+                    intros.append(new_intro)
+                    
+                    # quick white flash
+                    global flash_color, flash_timer
+                    flash_color = (255,255,255)
+                    flash_timer = 200
+                    print(f"[ANTI-FLICKER] Successfully created stable intro for {side}")
+                else:
+                    print(f"[ANTI-FLICKER] Failed validation for {side} intro - discarded")
+                    
+            except Exception as e:
+                print(f"[ANTI-FLICKER] Failed to create intro for {side}: {e}")
+    
+    # Track score changes for frame stability
+    if hasattr(_queue_intro_stable, 'last_score') and _queue_intro_stable.last_score != score:
+        _queue_intro_stable.last_score_change = pygame.time.get_ticks()
+    _queue_intro_stable.last_score = score
+    
+    # ------------------------------------------------------------------
+    # Unlock new paddles based on score milestones using intro animation
+    # ------------------------------------------------------------------
+    # Remove the old caching logic and use frame-stable creation instead
     if score >= 30:
-        _queue_intro('top')
+        _queue_intro_stable('top')
     if score >= 100:
-        _queue_intro('left')
+        _queue_intro_stable('left')
     if score >= 200:
-        _queue_intro('right')
+        _queue_intro_stable('right')
     
     for ball in (balls[:] if not paused else []):
         ball.update(dt)
@@ -1230,10 +1376,12 @@ while running:
                 break  # handled collision; exit wall loop
 
     # update particles
-    for part in particles[:]:
-        part.update()
-        if part.life <= 0:
-            particles.remove(part)
+    # Pause particle motion & decay while a paddle intro animation is running
+    if not intro_active:
+        for part in particles[:]:
+            part.update()
+            if part.life <= 0:
+                particles.remove(part)
 
     # expire powerups
     for side, (ptype, exp) in list(power_timers.items()):
@@ -1247,8 +1395,10 @@ while running:
     scene_surf.blit(WHITE_BG, (0,0))
     scene_surf.blit(BACKGROUND, (0,0))
     castle.draw(scene_surf)
-    # Overlay build animation (scaling bricks, sprouting turrets) if active
-    if castle_building and hasattr(castle, '_build_anim_state'):
+    # Overlay build animation (scaling bricks, sprouting turrets) if active.
+    # Skip drawing during paddle intro animations because the heavy per-brick
+    # rendering competes for frame time and causes the intro to flicker.
+    if castle_building and hasattr(castle, '_build_anim_state') and not intro_active:
         draw_castle_build_anim(castle, scene_surf)
     # Draw persistent player wall underneath castle visuals
     player_wall.draw(scene_surf)
@@ -1753,6 +1903,21 @@ while running:
         print("[DEBUG] Starting castle build animation")
         castle_building = True
         castle_built_once = True
+
+    # --- FIX: Ensure paddle intros are shown if score milestones were reached during tutorial ---
+    if not tutorial_overlay.active:
+        if score >= 30 and 'top' not in paddles and all(i.side != 'top' for i in intros):
+            intros.append(PaddleIntro('top', sounds, _load_sound, intro_font))
+            flash_color = (255,255,255)
+            flash_timer = 200
+        if score >= 100 and 'left' not in paddles and all(i.side != 'left' for i in intros):
+            intros.append(PaddleIntro('left', sounds, _load_sound, intro_font))
+            flash_color = (255,255,255)
+            flash_timer = 200
+        if score >= 200 and 'right' not in paddles and all(i.side != 'right' for i in intros):
+            intros.append(PaddleIntro('right', sounds, _load_sound, intro_font))
+            flash_color = (255,255,255)
+            flash_timer = 200
 
     # --- Fade overlay for store/game transitions ---
     if wave_transition['state'] in ('fade_to_store', 'store_fade_in', 'store_fade_out', 'resume_fade_in'):

@@ -727,13 +727,15 @@ class Castle:
                 pygame.draw.circle(screen, (255,255,255), rect.center, rad, 2)
 
         # --- draw debris pieces ---
-        for d in self.debris:
-            # Skip if shrunk away completely
-            if d.get('size', 0) <= 0:
-                continue
-            x, y = int(d['pos'].x), int(d['pos'].y)
-            size = int(max(1, d['size']))  # ensure at least 1 pixel for visibility
-            pygame.draw.rect(screen, d['color'], (x, y, size, size))
+        # Skip drawing debris while paddle intro animations are active to prevent stray specks
+        if not getattr(self, '_pause_rebuild', False):
+            for d in self.debris:
+                # Skip if shrunk away completely
+                if d.get('size', 0) <= 0:
+                    continue
+                x, y = int(d['pos'].x), int(d['pos'].y)
+                size = int(max(1, d['size']))  # ensure at least 1 pixel for visibility
+                pygame.draw.rect(screen, d['color'], (x, y, size, size))
 
         # ------------------------------------------------------------------
         # CANNON DRAW PASS – cannons now positioned on castle blocks
