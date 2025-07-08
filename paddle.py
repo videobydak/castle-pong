@@ -38,7 +38,9 @@ class Paddle:
         # store instantaneous bump extension speed (pixels per frame)
         self._bump_speed   = 0.0
         self.widen_stack = 0
-        self.widen_original_width = None
+        # NEW: Proper width tracking system
+        self.base_width = PADDLE_LEN  # Max width including store upgrades (excluding potions)
+        self.actual_width = PADDLE_LEN  # Current width excluding potion effects
         self.reset()
         # Fireball immunity timestamp (ms) after sticky launch
         self.fireball_immunity_until = 0
@@ -60,12 +62,31 @@ class Paddle:
                                     (HEIGHT-self.width)//2,
                                     PADDLE_THICK, self.width)
         self.dir = 0  # -1,0,+1
-        self.base_len = PADDLE_LEN
         # Reset fireball immunity
         self.fireball_immunity_until = 0
-        self.width = PADDLE_LEN
-        self.logical_width = PADDLE_LEN
-        self.target_width = PADDLE_LEN
+        
+        # Calculate correct base_width based on current upgrades
+        calculated_base_width = PADDLE_LEN
+        try:
+            # Try to get the store and check for Giant's Grip upgrades
+            import sys
+            if '__main__' in sys.modules:
+                main_module = sys.modules['__main__']
+                if hasattr(main_module, 'store'):
+                    store = main_module.store
+                    if store.has_upgrade('paddle_width'):
+                        level = store.get_upgrade_level('paddle_width')
+                        width_bonus = level * 30  # 30 pixels per level
+                        calculated_base_width = PADDLE_LEN + width_bonus
+        except Exception:
+            # If we can't access the store, fall back to default
+            pass
+        
+        self.width = calculated_base_width
+        self.logical_width = calculated_base_width
+        self.target_width = calculated_base_width
+        self.base_width = calculated_base_width
+        self.actual_width = calculated_base_width
         self._width_animating = False
         self.flicker = False
     def move(self):
@@ -235,37 +256,55 @@ class Paddle:
             self.heal_pulse_timer -= 1
     def shrink(self):
         # shorten by 20%, keep current centre position
-        self.logical_width = max(20, int(self.logical_width*0.8))
-        self._start_width_animation(self.logical_width)
-    def widen(self):
-        """Restore paddle to its base length. Decrement stack."""
         if self.widen_stack > 0:
-            self.widen_stack -= 1
-            if self.widen_stack == 0:
-                self.logical_width = PADDLE_LEN
-                self._start_width_animation(self.logical_width)
-                self.widen_original_width = None
-        # If stack > 0, do nothing (still widened)
+            # Widen potion is active - only shrink the logical width, protect actual_width
+            self.logical_width = max(20, int(self.logical_width * 0.8))
+            self._start_width_animation(self.logical_width)
+        else:
+            # No widen potion - shrink actual_width normally
+            self.actual_width = max(20, int(self.actual_width * 0.8))
+            self.logical_width = self.actual_width
+            self._start_width_animation(self.logical_width)
+    
+    def widen(self):
+        """Widen potion expired - restore to actual width."""
+        if self.widen_stack > 0:
+            self.widen_stack = 0  # Clear widen effect (no stacking)
+            self.logical_width = self.actual_width
+            self._start_width_animation(self.logical_width)
+    
     def enlarge(self):
-        """Temporarily enlarge the paddle by 50 % per stack. Stacks with previous widens."""
-        if self.widen_stack == 0 and self.widen_original_width is None:
-            # Record the width before any widen
-            self.widen_original_width = self.logical_width
-        self.widen_stack += 1
-        self.logical_width = min(WIDTH - 2*PADDLE_MARGIN, int(self.logical_width * 1.5)) if self.side in ('top','bottom') else min(HEIGHT - 2*PADDLE_MARGIN, int(self.logical_width * 1.5))
+        """Apply widen potion effect. Does NOT stack - each new potion resets the timer."""
+        # Don't modify actual_width! It should only change from damage, healing, or store upgrades
+        # The actual_width represents the "true" width that should be restored when widen expires
+        
+        # Widen potions do NOT stack - set to 1 (active) instead of incrementing
+        self.widen_stack = 1
+        # Set to 150% of base_width (which includes store upgrades)
+        widened_width = int(self.base_width * 1.5)
+        # Apply screen bounds
+        if self.side in ('top','bottom'):
+            widened_width = min(WIDTH - 2*PADDLE_MARGIN, widened_width)
+        else:
+            widened_width = min(HEIGHT - 2*PADDLE_MARGIN, widened_width)
+        self.logical_width = widened_width
         self._start_width_animation(self.logical_width)
+    
     def grow_on_hit(self, percent=0.1):
         """Increase paddle width by a percentage (default 10%) if widen is active."""
         if self.widen_stack > 0:
-            self.logical_width = min(WIDTH - 2*PADDLE_MARGIN, int(self.logical_width * (1 + percent))) if self.side in ('top','bottom') else min(HEIGHT - 2*PADDLE_MARGIN, int(self.logical_width * (1 + percent)))
+            # Only increase the logical width temporarily during widen effect
+            # Do NOT modify actual_width - that should only change from damage, healing, or store upgrades
+            new_logical_width = min(WIDTH - 2*PADDLE_MARGIN, int(self.logical_width * (1 + percent))) if self.side in ('top','bottom') else min(HEIGHT - 2*PADDLE_MARGIN, int(self.logical_width * (1 + percent)))
+            self.logical_width = new_logical_width
             self._start_width_animation(self.logical_width)
+    
     def clear_widen(self):
-        """Immediately restore the paddle to its base width and clear all widen effects."""
+        """Immediately restore the paddle to its actual width and clear all widen effects."""
         if self.widen_stack > 0:
-            self.logical_width = PADDLE_LEN
+            self.logical_width = self.actual_width
             self._start_width_animation(self.logical_width)
             self.widen_stack = 0
-            self.widen_original_width = None
     def update(self):
         # Call this every frame to animate width
         if self._width_animating:

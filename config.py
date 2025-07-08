@@ -23,7 +23,7 @@ BALL_SPEED = 5
 BALL_FRICTION = 0.999   # multiplier each frame (~0.1% loss, keeps cannonballs lively)
 BALL_SHATTER_SPEED = BALL_SPEED * 0.45 # 7% of BALL_SPEED (4*0.07)
 SHOOT_INTERVAL = 2000       # ms between castle shots
-POWERUP_CHANCE = 0.07        # chance a shot is power-up
+POWERUP_CHANCE = 0.03        # chance a shot is power-up
 
 # Colors
 WHITE = (255,255,255)
@@ -87,6 +87,9 @@ SPIN_TRANSFER = .1    # Fraction of paddle tangential velocity converted into sp
 LINEAR_TRANSFER = 0.7  # Fraction of paddle tangential velocity added to linear velocity on hit
 
 DEBUG = False  # Set to False to disable debug console logs
+
+# --- Debug Settings ---
+DEBUG_STARTING_COINS = 1000000  # Set to a positive number to start with that many coins (only works when DEBUG = True)
 
 _original_print = _builtins.print
 

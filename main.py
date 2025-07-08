@@ -14,7 +14,7 @@ from castle_build_anim import update_castle_build_anim, draw_castle_build_anim
 # Heart collectible
 from heart import update_hearts, draw_hearts, clear_hearts
 # Coin collectible and store system
-from coin import update_coins, draw_coins, get_coin_count, clear_coins
+from coin import update_coins, draw_coins, get_coin_count, clear_coins, clear_active_coins
 from store import get_store
 from upgrade_effects import apply_upgrade_effects, reset_upgrade_states, get_time_scale, get_unlocked_potions
 from pause_menu import PauseMenu  # <--- new import for in-game pause menu
@@ -952,6 +952,25 @@ while running:
     #  Recalculate paused state now that overlays processed
     # -----------------------------------------------------
     paused = intro_active or tutorial_overlay.active or pause_menu.active or options_menu.active or store.active
+    
+    # Handle pause state changes for power timers - extend expiry times when unpausing
+    if 'prev_paused' not in globals():
+        global prev_paused, pause_start_time
+        prev_paused = False
+        pause_start_time = 0
+    
+    if paused and not prev_paused:
+        # Just became paused - record pause start time
+        pause_start_time = now
+    elif not paused and prev_paused:
+        # Just became unpaused - extend all power timer expiry times by pause duration
+        if pause_start_time > 0:
+            pause_duration = now - pause_start_time
+            for side in power_timers:
+                ptype, expiry = power_timers[side]
+                power_timers[side] = [ptype, expiry + pause_duration]
+    
+    prev_paused = paused
 
     # Only process game events if no menu consumed them
     if not options_consumed_events and not store_consumed_events:
@@ -1254,14 +1273,14 @@ while running:
                         # Check for fireball immunity
                         if not hasattr(p, 'fireball_immunity_until') or now >= getattr(p, 'fireball_immunity_until', 0):
                             if power_timers.get(side, [None,0])[0] != 'widen':
-                                old_width = p.width
+                                old_width = p.logical_width
                                 if not getattr(p, 'fire_resistance', False):
                                     p.shrink()
                                 # Play paddle damage sound for fireball
                                 if 'paddle_damage' in sounds:
                                     sounds['paddle_damage'].play()
                                 # screen shake intensity based on remaining width
-                                ratio = 1 - (p.width / p.base_len)
+                                ratio = 1 - (p.logical_width / p.base_width)
                                 shake_intensity = int(2 + 8 * ratio)
                                 shake_frames = 8
                                 # wood debris particles at paddle ends
@@ -1611,13 +1630,14 @@ while running:
             if part.life <= 0:
                 particles.remove(part)
 
-    # expire powerups
-    for side, (ptype, exp) in list(power_timers.items()):
-        if now >= exp:
-            if ptype=='widen':
-                paddles[side].widen()  # Only decrement stack on natural expiry
-            # sticky / through just expire naturally
-            del power_timers[side]
+    # expire powerups (only when not paused)
+    if not paused:
+        for side, (ptype, exp) in list(power_timers.items()):
+            if now >= exp:
+                if ptype=='widen':
+                    paddles[side].widen()  # Only decrement stack on natural expiry
+                # sticky / through just expire naturally
+                del power_timers[side]
 
     # — Draw everything onto off-screen surface —
     scene_surf.blit(WHITE_BG, (0,0))
@@ -1689,8 +1709,14 @@ while running:
         x = 10 + idx*(bar_w+10)
         pygame.draw.rect(scene_surf, (80,80,80), (x, bar_y, bar_w, bar_h))
         clr = POTION_COLORS.get(ptype, (255,255,0))
+        
+        # Draw the power timer bar - frozen in place when paused
         pygame.draw.rect(scene_surf, clr, (x, bar_y, int(bar_w*ratio), bar_h))
-        label = small_font.render(ptype[0].upper(), True, clr)
+        
+        label_text = ptype[0].upper()
+        if paused:
+            label_text += " (PAUSED)"
+        label = small_font.render(label_text, True, clr)
         scene_surf.blit(label, (x+bar_w//2-4, bar_y-12))
 
     # FPS display (if enabled in options)
@@ -1698,6 +1724,56 @@ while running:
         fps_text = f"FPS: {int(clock.get_fps())}"
         fps_surf = small_font.render(fps_text, True, (255, 255, 255))
         scene_surf.blit(fps_surf, (WIDTH - fps_surf.get_width() - 10, 10))
+
+    # ==== PADDLE WIDTH DEBUG INFO ====
+    # Display paddle width states for debugging the widen potion issue
+    if DEBUG:
+        debug_y = 35  # Start below FPS counter
+        for side, paddle in paddles.items():
+            # Get paddle state info
+            base_w = paddle.base_width
+            actual_w = paddle.actual_width
+            logical_w = paddle.logical_width
+            current_w = paddle.width
+            stack = paddle.widen_stack
+            animating = paddle._width_animating
+            
+            # Color coding: red if there might be an issue
+            color = (255, 255, 255)  # Default white
+            if stack == 0 and (current_w != actual_w or logical_w != actual_w):
+                color = (255, 100, 100)  # Red if width doesn't match when no widen active
+            elif stack > 0:
+                color = (100, 255, 100)  # Green when widen is active
+            
+            # Create debug text
+            debug_text = f"{side.upper()}: B{base_w} A{actual_w} L{logical_w} C{current_w} S{stack}"
+            if animating:
+                anim_target = paddle._width_anim_to if hasattr(paddle, '_width_anim_to') else "?"
+                anim_progress = f"{paddle._width_anim_frame}/{paddle._width_anim_total_frames}" if hasattr(paddle, '_width_anim_frame') else "?/?"
+                debug_text += f" ANIM→{anim_target} ({anim_progress})"
+            
+            # Render and position
+            debug_surf = small_font.render(debug_text, True, color)
+            scene_surf.blit(debug_surf, (WIDTH - debug_surf.get_width() - 10, debug_y))
+            debug_y += 14  # Move down for next paddle
+        
+        # Show pause status for power timers
+        if power_timers and paused:
+            pause_text = "POTIONS PAUSED"
+            pause_surf = small_font.render(pause_text, True, (255, 255, 100))
+            scene_surf.blit(pause_surf, (WIDTH - pause_surf.get_width() - 10, debug_y))
+            debug_y += 14
+        
+        # Legend for debug info
+        legend_y = debug_y + 5
+        legend_lines = [
+            "B=Base A=Actual L=Logical C=Current S=Stack",
+            "RED=Issue GREEN=Widen ANIM=Animating"
+        ]
+        for line in legend_lines:
+            legend_surf = small_font.render(line, True, (180, 180, 180))
+            scene_surf.blit(legend_surf, (WIDTH - legend_surf.get_width() - 10, legend_y))
+            legend_y += 12
 
     # Screen shake offset
     offset_x = offset_y = 0
@@ -1887,7 +1963,7 @@ while running:
     if wave_transition['state'] == 'store_fade_in':
         # Open the store exactly once at the start of this state
         if not wave_transition.get('store_opened', False):
-            store.open_store(wave)
+            store.open_store(wave, automatic=True)
             wave_transition['store_opened'] = True
         alpha = max(0, 255 - int(255 * wave_transition['timer'] / wave_transition['duration_store_fade_in']))
         wave_transition['fade_alpha'] = alpha
@@ -1935,7 +2011,7 @@ while running:
             if hasattr(castle, '_build_anim_state'):
                 castle_building = True
             balls.clear()
-            clear_coins()  # Clear coins from previous wave
+            clear_active_coins()  # Clear active coins from previous wave (preserve total count)
             for p in paddles.values():
                 p.widen()
             power_timers.clear()

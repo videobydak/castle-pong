@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 # Coin collectible – 8-bit pixel coins that provide currency for upgrades.
 # -----------------------------------------------------------------------------
 
-__all__ = ["maybe_spawn_coins", "update_coins", "draw_coins", "get_coin_count", "clear_coins", "update_coin_volumes"]
+__all__ = ["maybe_spawn_coins", "update_coins", "draw_coins", "get_coin_count", "clear_coins", "clear_active_coins", "update_coin_volumes"]
 
 # Active coin instances in the world
 _active_coins: List["_Coin"] = []
@@ -361,13 +361,23 @@ def set_magnetism_strength(strength: float):
 def reset_coin_count():
     """Reset the player's total coin count to zero (used for new game)."""
     global _total_coins
-    _total_coins = 0
+    from config import DEBUG, DEBUG_STARTING_COINS
+    if DEBUG and DEBUG_STARTING_COINS > 0:
+        _total_coins = DEBUG_STARTING_COINS
+        print(f"[DEBUG] Starting with {DEBUG_STARTING_COINS} coins")
+    else:
+        _total_coins = 0
+
+
+def clear_active_coins():
+    """Clear all active coins from the screen without resetting total coin count."""
+    global _active_coins
+    _active_coins = []
 
 
 def clear_coins():
     """Clear all active coins (used for game reset). Also resets total coins."""
-    global _active_coins
-    _active_coins = []
+    clear_active_coins()
     reset_coin_count()
 
 

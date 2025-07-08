@@ -149,7 +149,8 @@ while running:
                     if power_timers.get(side, [None,0])[0] != 'widen':
                         p.shrink()
                     # Grow paddle if widen is active
-                    p.grow_on_hit()
+                    if power_timers.get(side, [None,0])[0] == 'widen':
+                        p.grow_on_hit()
                     if side in ('top','bottom'):
                         ball.vel.y *= -1
                         # Add horizontal component based on paddle motion
@@ -167,7 +168,8 @@ while running:
                 else:
                     # white ball bounces back toward the castle
                     # Grow paddle if widen is active
-                    p.grow_on_hit()
+                    if power_timers.get(side, [None,0])[0] == 'widen':
+                        p.grow_on_hit()
                     if side in ('top','bottom'):
                         ball.vel.y *= -1
                         ball.vel.x += p.vel * LINEAR_TRANSFER
@@ -230,7 +232,7 @@ while running:
         castle_level += 1
         castle = Castle(level=castle_level)
 
-    if all(p.width<20 for p in paddles.values()):
+    if all(p.logical_width<20 for p in paddles.values()):
         print(f"All paddles gone. Game over. Final Score: {score}")
         running=False
     
