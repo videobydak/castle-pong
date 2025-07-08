@@ -2,5 +2,3 @@ pygame
 numpy
 matplotlib
 scipy
-matplotlib
-scipy

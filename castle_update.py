@@ -513,8 +513,14 @@ def update_castle(castle, dt_ms, player_score=0, paddles=None, player_wall=None,
                     if castle.level < 10:
                         castle.fireball_reserved = True
                 elif r < fireball_prob + potion_prob and not castle.potion_reserved:
-                    chosen_type = 'power'
-                    castle.potion_reserved = True
+                    # Check if any potions are unlocked before choosing power type
+                    from upgrade_effects import get_unlocked_potions
+                    unlocked_potions = get_unlocked_potions()
+                    if unlocked_potions:
+                        chosen_type = 'power'
+                        castle.potion_reserved = True
+                    else:
+                        chosen_type = 'white'
                 else:
                     chosen_type = 'white'
 

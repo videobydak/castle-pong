@@ -182,7 +182,11 @@ class TutorialOverlay:
                 # Render greyed out text
                 txt_surf = self._render_outline(btn["label"], self.btn_font, text_col, (0, 0, 0), 1)
             else:
-                txt_surf = btn['surf'] if not self.loading else self._render_outline(btn["label"], self.btn_font, text_col, (0, 0, 0), 1)
+                # Use yellow text when hovered/selected (matching pause menu style)
+                if hover and not self.loading:
+                    txt_surf = self._render_outline(btn["label"], self.btn_font, YELLOW, (0, 0, 0), 1)
+                else:
+                    txt_surf = btn['surf'] if not self.loading else self._render_outline(btn["label"], self.btn_font, text_col, (0, 0, 0), 1)
             txt_rect = txt_surf.get_rect(center=box.center)
             surface.blit(txt_surf, txt_rect)
             

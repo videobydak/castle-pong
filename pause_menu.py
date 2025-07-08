@@ -23,7 +23,7 @@ class PauseMenu:
             ("Resume", self._resume),
             ("Options", self._options),
             ("Store", self._store),
-            ("Exit", self._exit),
+            ("Quit", self._exit),
         ]
         self._layout_buttons()
 
@@ -82,36 +82,114 @@ class PauseMenu:
         except Exception as e:
             print("[PauseMenu] Failed to open store:", e)
     def _exit(self):
-        """Return to the main menu and pause the game."""
+        """Return to the main menu and completely reset the game state."""
         import sys
         import pygame
         try:
             _main = sys.modules['__main__']
             self.active = False
+            
+            # Manual reset for returning to main menu (without triggering paddle intro)
+            if hasattr(_main, 'wave'):
+                _main.wave = 1
+            if hasattr(_main, 'castle_dim_x'):
+                _main.castle_dim_x = 5
+            if hasattr(_main, 'castle_dim_y'):
+                _main.castle_dim_y = 5
+            
+            # Reset game objects
+            if hasattr(_main, 'player_wall'):
+                from player_wall import PlayerWall
+                _main.player_wall = PlayerWall()
+            if hasattr(_main, 'paddles'):
+                _main.paddles = {}  # No paddles initially
+            if hasattr(_main, 'balls'):
+                _main.balls = []
+            if hasattr(_main, 'score'):
+                _main.score = 0
+            if hasattr(_main, 'particles'):
+                _main.particles = []
+            
+            # Reset collectibles and upgrades
+            if hasattr(_main, 'clear_coins'):
+                _main.clear_coins()
+            if hasattr(_main, 'clear_hearts'):
+                _main.clear_hearts()
+            if hasattr(_main, 'store'):
+                _main.store.close_store()
+            if hasattr(_main, 'reset_upgrade_states'):
+                _main.reset_upgrade_states()
+            
+            # Reset visual effects and timers
+            if hasattr(_main, 'shake_frames'):
+                _main.shake_frames = 0
+            if hasattr(_main, 'shake_intensity'):
+                _main.shake_intensity = 0
+            if hasattr(_main, 'flash_color'):
+                _main.flash_color = None
+            if hasattr(_main, 'flash_timer'):
+                _main.flash_timer = 0
+            if hasattr(_main, 'power_timers'):
+                _main.power_timers = {}
+            if hasattr(_main, 'barrier_timer'):
+                _main.barrier_timer = 0
+            if hasattr(_main, 'shoot_enable_time'):
+                _main.shoot_enable_time = 0
+            if hasattr(_main, 'intros'):
+                _main.intros = []  # Clear any pending intros
+            if hasattr(_main, 'castle_building'):
+                _main.castle_building = False
+            if hasattr(_main, 'castle_built_once'):
+                _main.castle_built_once = False
+            
+            # Reset castle
+            if hasattr(_main, 'create_castle_for_wave'):
+                _main.castle, _ = _main.create_castle_for_wave(1)
+                _main.castle.shooting_enabled = False
+            
+            # Reset wave transition
+            if hasattr(_main, 'wave_transition'):
+                _main.wave_transition.update({
+                    'active': False,
+                    'state': 'idle',
+                    'timer': 0,
+                    'block_pos': None,
+                    'closeness': 0.0,
+                    'fade_alpha': 0,
+                    'next_castle': None,
+                    'next_music': None,
+                    'store_opened': False,
+                })
+            
+            # Reset background
+            if hasattr(_main, 'generate_grass'):
+                _main.BACKGROUND = _main.generate_grass(_main.WIDTH, _main.HEIGHT)
+            
+            # Close menus
             if hasattr(_main, 'options_menu'):
                 _main.options_menu.active = False
             if hasattr(_main, 'store'):
                 _main.store.close_store()
-            # Just show the main menu - the game should pause automatically
+            
+            # Recreate tutorial overlay (main menu)
             if hasattr(_main, 'tutorial_overlay'):
-                _main.tutorial_overlay.active = True
-                _main.tutorial_overlay.loading = False
-                _main.tutorial_overlay.selected_index = 0
-                # Reset button hover states to prevent accidental clicks
-                for btn in _main.tutorial_overlay.buttons:
-                    btn['hover'] = False
-                # Clear any pending keyboard state to prevent spacebar from 
-                # immediately triggering the Play button
-                pygame.event.clear(pygame.KEYDOWN)
-                pygame.event.clear(pygame.KEYUP)
+                from tutorial import TutorialOverlay
+                _main.tutorial_overlay = TutorialOverlay()
+            
             # Switch to menu music
             pygame.mixer.music.fadeout(400)
             try:
-                pygame.mixer.music.load(_main.MUSIC_PATH)
+                # Load the menu music (same as tutorial overlay)
+                pygame.mixer.music.load("menu.mp3")
                 pygame.mixer.music.set_volume(0.6)
                 pygame.mixer.music.play(-1)
             except Exception as e:
-                print(f"[Audio] Failed to restart tutorial music: {e}")
+                print(f"[Audio] Failed to load menu music: {e}")
+            
+            # Update store game state references
+            if hasattr(_main, 'store') and hasattr(_main, 'paddles') and hasattr(_main, 'player_wall') and hasattr(_main, 'castle'):
+                _main.store.set_game_state(_main.paddles, _main.player_wall, _main.castle)
+            
         except Exception as e:
             print("[PauseMenu] Failed to return to main menu:", e)
             pygame.quit()

@@ -703,10 +703,10 @@ while running:
     else:
         ms_game = 0 if intro_active else ms
 
-    # Castle logic should still tick during tutorial overlay so cannons can
-    # move/charge while shooting remains disabled.  During paddle intro we
-    # freeze all castle logic (including cannons) to avoid stray shots.
-    ms_castle = ms if tutorial_overlay.active else ms_game
+    # Castle logic should be frozen during tutorial overlay (main menu) to prevent
+    # any background activity. During paddle intro we freeze all castle logic 
+    # (including cannons) to avoid stray shots.
+    ms_castle = 0 if tutorial_overlay.active else ms_game
 
     dt = ms_game / (1000/60)
     now = pygame.time.get_ticks()
@@ -730,12 +730,12 @@ while running:
             update_castle_build_anim(castle, ms)
             if castle._build_anim_state['done']:
                 castle_building = False
-        # Continue with normal game loop (castle.update) unless intro animation is active
+        # Continue with normal game loop (castle.update) unless any menu is active
         if (not intro_active and not pause_menu.active and not store.active and
-            not options_menu.active):
+            not options_menu.active and not tutorial_overlay.active):
             # Run castle logic only when gameplay is fully active. This prevents
             # cannons from charging or shooting while the game is paused,
-            # in the store, or in the options menu.
+            # in the store, in the options menu, or in the main menu.
             new_balls = castle.update(ms_castle, score, paddles, player_wall, balls)
             if new_balls:
                 balls.extend(new_balls)
@@ -1613,10 +1613,6 @@ while running:
         # If screen shake is disabled, just decrement frames without applying offset
         shake_frames -= 1
 
-    # Skip regular blit if we are in wave-transition zoom mode
-    if wave_transition['state'] == 'idle':
-        screen.blit(scene_surf, (offset_x, offset_y))
-
     # draw / update paddle intro animations on top of scene
     for intro in intros[:]:
         ms_clamped = max(1, min(ms, 100))  # Minimum 1ms, maximum 100ms
@@ -1627,7 +1623,11 @@ while running:
             # --- Schedule tooltip for this paddle after a delay ---
             show_time = pygame.time.get_ticks() + 1200  # 1.2s after intro
             pending_tooltips.append((intro.side, paddles[intro.side], show_time))
-        intro.draw(screen)
+        intro.draw(scene_surf)
+
+    # Skip regular blit if we are in wave-transition zoom mode
+    if wave_transition['state'] == 'idle':
+        screen.blit(scene_surf, (offset_x, offset_y))
 
     # Show any pending tooltips whose time has arrived
     now = pygame.time.get_ticks()
@@ -2046,8 +2046,8 @@ while running:
         screen.fill((255,255,255))  # fills behind – should be hidden after clamping
         screen.blit(zoomed_surf, (offset_x, offset_y))
 
-        # Draw overlays (store, pause menu, tutorial) during focus so the armory appears
-        if st == 'focus':
+        # Draw overlays (store, pause menu, tutorial) during focus, approach, and resume so the armory appears
+        if st in ('focus', 'approach', 'resume'):
             tutorial_overlay.draw(screen)
             pause_menu.draw(screen)
             options_menu.draw(screen)

@@ -207,7 +207,11 @@ class Cannon:
             preview_ball = Ball(draw_origin.x, draw_origin.y, 0, 0, config.RED, spin=0, force_no_spin=True)
         else:
             ptype = self.preview_power or get_random_potion_type(self._rng)
-            preview_ball = Ball(draw_origin.x, draw_origin.y, 0, 0, config.YELLOW, True, ptype, spin=0, force_no_spin=True)
+            if ptype is None:
+                # No potions unlocked, fall back to white cannonball
+                preview_ball = Ball(draw_origin.x, draw_origin.y, 0, 0, config.WHITE, spin=0, force_no_spin=True)
+            else:
+                preview_ball = Ball(draw_origin.x, draw_origin.y, 0, 0, config.YELLOW, True, ptype, spin=0, force_no_spin=True)
         orig_radius = config.BALL_RADIUS
         config.BALL_RADIUS = max(2, int(orig_radius * preview_scale))
         preview_ball.draw(screen, None)
@@ -271,7 +275,11 @@ class Cannon:
             b = Ball(start_pos.x, start_pos.y, vx, vy, config.RED, spin=spin)
         else:  # power-up
             ptype = self.preview_power or get_random_potion_type(self._rng)
-            b = Ball(start_pos.x, start_pos.y, vx, vy, config.YELLOW, True, ptype, spin=spin)
+            if ptype is None:
+                # No potions unlocked, fall back to white cannonball
+                b = Ball(start_pos.x, start_pos.y, vx, vy, config.WHITE, spin=spin)
+            else:
+                b = Ball(start_pos.x, start_pos.y, vx, vy, config.YELLOW, True, ptype, spin=spin)
         
         b.friendly = True # Should this be False if it's an enemy cannon? Assuming they are player-allied for now.
         
