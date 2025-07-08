@@ -80,6 +80,22 @@ class PaddleIntro:
             self.timer = 0
             self.pos = self.final_pos.copy()
             self.angle = self._FINAL_ANGLE.get(self.side, 0)
+    
+    def _update_sound_volume(self):
+        """Update paddle intro sound volume based on current settings."""
+        try:
+            if 'paddle_intro' in self._sounds:
+                import sys
+                if '__main__' in sys.modules and hasattr(sys.modules['__main__'], 'options_menu'):
+                    options_menu = sys.modules['__main__'].options_menu
+                    if hasattr(options_menu, 'settings'):
+                        if options_menu.settings.get('sfx_muted', False):
+                            self._sounds['paddle_intro'].set_volume(0)
+                        else:
+                            sfx_vol = options_menu.settings.get('sfx_volume', 0.75)
+                            self._sounds['paddle_intro'].set_volume(sfx_vol)
+        except Exception as e:
+            print(f"[PaddleIntro] Failed to update sound volume: {e}")
 
     # durations (ms)
     FLY_TIME  = 1000   # was 700 – slower so players can track it
@@ -122,7 +138,9 @@ class PaddleIntro:
             try:
                 if 'paddle_intro' not in self._sounds:
                     self._sounds['paddle_intro'] = self._load_sound_func('Sound Response - 8 Bit Jingles - Glide up Win')
-                    self._sounds['paddle_intro'].set_volume(0.4)
+                    # Volume will be set by options menu
+                # Update volume before playing
+                self._update_sound_volume()
                 self._sounds['paddle_intro'].play()
             except Exception as _aud_err:
                 print('[Audio] Paddle intro sound error:', _aud_err)

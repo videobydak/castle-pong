@@ -172,6 +172,8 @@ def update_castle_build_anim(castle, dt):
             extra = 0 if tier == 2 else (1 if tier == 3 else 2)
             castle.block_health[key] = 1 + extra
         castle.block_tiers[key] = tier
+        # Track the original tier for this block
+        castle.original_block_tiers[key] = tier
         castle.set_block_color_by_strength(key, tier)
         castle.block_shapes[key] = 'wall'
         s['built_blocks'].append(rect)
@@ -193,6 +195,8 @@ def update_castle_build_anim(castle, dt):
             tier = mask[my, mx] if 0 <= my < height and 0 <= mx < width else 2
             key = (rect.x, rect.y)
             castle.block_tiers[key] = tier
+            # Track the original tier for this block
+            castle.original_block_tiers[key] = tier
             castle.set_block_color_by_strength(key, tier)
             # Pre-populate block_shape so get_block_texture works during anim
             castle.block_shapes[key] = 'wall'

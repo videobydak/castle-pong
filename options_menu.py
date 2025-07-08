@@ -34,8 +34,8 @@ class OptionsMenu:
     def _load_settings(self):
         """Load settings from file or create defaults."""
         default_settings = {
-            'music_volume': 0.6,
-            'sfx_volume': 0.4,
+            'music_volume': 0.75,  # Changed from 0.6 to 0.75 (75%)
+            'sfx_volume': 0.75,    # Changed from 0.4 to 0.75 (75%)
             'music_muted': False,
             'sfx_muted': False,
             'screen_shake': True,
@@ -128,11 +128,17 @@ class OptionsMenu:
             'label_rect': pygame.Rect(WIDTH//2 - 100, fps_y - 30, 200, 25)
         })
         
-        # Back Button
+        # Back and Reset Buttons
         back_y = fps_y + 100
         self.back_button = {
-            'rect': pygame.Rect(WIDTH//2 - 75, back_y, 150, 50),
+            'rect': pygame.Rect(WIDTH//2 - 160, back_y, 150, 50),
             'label': 'Back',
+            'hover': False
+        }
+        
+        self.reset_button = {
+            'rect': pygame.Rect(WIDTH//2 + 10, back_y, 150, 50),
+            'label': 'Reset',
             'hover': False
         }
     
@@ -150,6 +156,19 @@ class OptionsMenu:
         self._save_settings()
         self._apply_settings()
     
+    def reset_to_defaults(self):
+        """Reset all settings to their default values."""
+        self.settings = {
+            'music_volume': 0.75,
+            'sfx_volume': 0.75,
+            'music_muted': False,
+            'sfx_muted': False,
+            'screen_shake': True,
+            'show_fps': False
+        }
+        self._apply_settings()
+        self._save_settings()
+    
     def _apply_settings(self):
         """Apply current settings to the game systems."""
         # Apply music settings
@@ -164,9 +183,14 @@ class OptionsMenu:
             main_module = sys.modules['__main__']
             if hasattr(main_module, 'sounds'):
                 sfx_vol = 0 if self.settings['sfx_muted'] else self.settings['sfx_volume']
-                for sound in main_module.sounds.values():
+                for sound_name, sound in main_module.sounds.items():
                     if sound:  # Check if sound loaded successfully
-                        sound.set_volume(sfx_vol)
+                        # Apply 7% volume reduction to wall_break sound
+                        if sound_name == 'wall_break':
+                            adjusted_vol = sfx_vol * 0.93  # 7% quieter
+                            sound.set_volume(adjusted_vol)
+                        else:
+                            sound.set_volume(sfx_vol)
             
             # Apply to coin sounds specifically
             if 'coin' in sys.modules:
@@ -213,9 +237,9 @@ class OptionsMenu:
                 if event.key == pygame.K_ESCAPE:
                     self.close_options()
                 elif event.key == pygame.K_UP:
-                    self.selected_option = (self.selected_option - 1) % (len(self.options) + 1)
+                    self.selected_option = (self.selected_option - 1) % (len(self.options) + 2)  # +2 for back and reset buttons
                 elif event.key == pygame.K_DOWN:
-                    self.selected_option = (self.selected_option + 1) % (len(self.options) + 1)
+                    self.selected_option = (self.selected_option + 1) % (len(self.options) + 2)  # +2 for back and reset buttons
                 elif event.key == pygame.K_LEFT:
                     self._handle_left_arrow()
                 elif event.key == pygame.K_RIGHT:
@@ -241,6 +265,11 @@ class OptionsMenu:
         # Check back button
         if self.back_button['rect'].collidepoint(mouse_pos):
             self.close_options()
+            return
+        
+        # Check reset button
+        if self.reset_button['rect'].collidepoint(mouse_pos):
+            self.reset_to_defaults()
             return
         
         # Check options
@@ -303,6 +332,8 @@ class OptionsMenu:
         """Activate the currently selected option with keyboard."""
         if self.selected_option == len(self.options):  # Back button
             self.close_options()
+        elif self.selected_option == len(self.options) + 1:  # Reset button
+            self.reset_to_defaults()
         elif self.selected_option < len(self.options):
             option = self.options[self.selected_option]
             if option['type'] == 'toggle':
@@ -312,6 +343,7 @@ class OptionsMenu:
     def _update_hover_states(self, mouse_pos):
         """Update hover states for UI elements."""
         self.back_button['hover'] = self.back_button['rect'].collidepoint(mouse_pos)
+        self.reset_button['hover'] = self.reset_button['rect'].collidepoint(mouse_pos)
     
     def draw(self, surface):
         """Draw the options menu."""
@@ -332,8 +364,9 @@ class OptionsMenu:
             selected = (i == self.selected_option)
             self._draw_option(surface, option, selected)
         
-        # Draw back button
+        # Draw back and reset buttons
         self._draw_back_button(surface)
+        self._draw_reset_button(surface)
     
     def _draw_option(self, surface, option, selected):
         """Draw a single option element."""
@@ -420,6 +453,25 @@ class OptionsMenu:
         """Draw the back button."""
         button = self.back_button
         selected = (self.selected_option == len(self.options))
+        
+        # Colors
+        bg_color = (110, 110, 110) if (button['hover'] or selected) else (60, 60, 60)
+        border_color = YELLOW if selected else (0, 0, 0)
+        text_color = YELLOW if (button['hover'] or selected) else WHITE
+        
+        # Draw button
+        pygame.draw.rect(surface, bg_color, button['rect'])
+        pygame.draw.rect(surface, border_color, button['rect'], 2)
+        
+        # Draw button text
+        text_surf = self._render_outline(button['label'], self.btn_font, text_color, (0, 0, 0), 1)
+        text_rect = text_surf.get_rect(center=button['rect'].center)
+        surface.blit(text_surf, text_rect)
+    
+    def _draw_reset_button(self, surface):
+        """Draw the reset button."""
+        button = self.reset_button
+        selected = (self.selected_option == len(self.options) + 1)  # Reset is after back button
         
         # Colors
         bg_color = (110, 110, 110) if (button['hover'] or selected) else (60, 60, 60)

@@ -161,10 +161,7 @@ pygame.mixer.init()
 MUSIC_PATH = "Untitled.mp3"  # background soundtrack in project root
 try:
     pygame.mixer.music.load(MUSIC_PATH)
-    pygame.mixer.music.set_volume(0.6)
-    # Playback will start in the title screen overlay
-
-    # print('[Audio] Sound effects loaded successfully')
+    # Volume will be set after options menu is initialized
     print('[Audio] Title music preloaded')
 except pygame.error as e:
     print(f"[Audio] Failed to load '{MUSIC_PATH}':", e)
@@ -176,6 +173,92 @@ tutorial_looping  = True    # while the tutorial overlay is active
 last_tut_restart  = pygame.time.get_ticks()
 # track if we are in the silence interval
 _tut_pause_until = 0
+
+def init_wave_music_playlist():
+    """Initialize the wave music playlist with available tracks."""
+    global wave_music_playlist
+    wave_music_playlist = WAVE_MUSIC_FILES.copy()
+    # Shuffle the playlist for variety
+    import random
+    random.shuffle(wave_music_playlist)
+    print(f"[Audio] Initialized playlist with {len(wave_music_playlist)} tracks: {wave_music_playlist}")
+
+def get_next_wave_music():
+    """Get the next song from the playlist, avoiding the current one."""
+    global current_playlist_index, wave_music_playlist, current_playing_song
+    
+    if not wave_music_playlist:
+        init_wave_music_playlist()
+    
+    # If we only have one song, we can't avoid it, but we should still return it
+    if len(wave_music_playlist) == 1:
+        chosen_music = wave_music_playlist[0]
+        current_playing_song = chosen_music
+        return chosen_music
+    
+    # Find a different song than the current one
+    import random
+    attempts = 0
+    max_attempts = len(wave_music_playlist) * 2  # Prevent infinite loops
+    
+    while attempts < max_attempts:
+        # Move to next song
+        current_playlist_index = (current_playlist_index + 1) % len(wave_music_playlist)
+        
+        # If we're back to the beginning, reshuffle the playlist
+        if current_playlist_index == 0:
+            random.shuffle(wave_music_playlist)
+            print(f"[Audio] Reshuffled playlist: {wave_music_playlist}")
+        
+        chosen_music = wave_music_playlist[current_playlist_index]
+        
+        # If this is a different song than what's currently playing, use it
+        if chosen_music != current_playing_song:
+            current_playing_song = chosen_music  # Track what we're now playing
+            return chosen_music
+        
+        attempts += 1
+    
+    # If we somehow couldn't find a different song, just return the next one
+    # This should only happen if all songs are the same (which shouldn't be possible)
+    chosen_music = wave_music_playlist[current_playlist_index]
+    current_playing_song = chosen_music
+    print(f"[Audio] Warning: Could not find different song, using: {chosen_music}")
+    return chosen_music
+
+def start_random_wave_music():
+    """Start a random wave music track."""
+    global current_playlist_index, wave_music_playlist, current_playing_song
+    
+    if not wave_music_playlist:
+        init_wave_music_playlist()
+    
+    # Pick a random starting position (different from current song)
+    import random
+    if len(wave_music_playlist) > 1:
+        new_index = random.randint(0, len(wave_music_playlist) - 1)
+        # Make sure we don't pick the same song that's currently playing
+        while wave_music_playlist[new_index] == current_playing_song and len(wave_music_playlist) > 1:
+            new_index = random.randint(0, len(wave_music_playlist) - 1)
+        current_playlist_index = new_index
+    
+    chosen_music = wave_music_playlist[current_playlist_index]
+    current_playing_song = chosen_music  # Track what we're now playing
+    
+    try:
+        pygame.mixer.music.load(chosen_music)
+        # Use current music volume from options
+        music_volume = options_menu.get_setting('music_volume', 0.75)
+        if options_menu.get_setting('music_muted', False):
+            pygame.mixer.music.set_volume(0)
+        else:
+            pygame.mixer.music.set_volume(music_volume)
+        pygame.mixer.music.play(0)  # Play once without looping
+        print(f"[Audio] Started wave music: {chosen_music}")
+        return True
+    except Exception as e:
+        print(f"[Audio] Failed to load wave music: {e}")
+        return False
 
 # --- Scan for available wave music files (Untitled3.mp3 to Untitled10.mp3) ---
 WAVE_MUSIC_FILES = []
@@ -392,17 +475,17 @@ try:
     # Add castle build whoosh sound
     sounds['castle_build_whoosh'] = _load_sound('Alberto Sueri - 8 Bit Fun - Quick Whoosh Gritty ')
 
-    # Set volumes
-    for snd in sounds.values():
-        snd.set_volume(0.4)
+    # Volumes will be set after options menu is initialized
 
     # print('[Audio] Sound effects loaded successfully')
 except pygame.error as e:
     print(f'[Audio] Failed to load sound effects: {e}')
     sounds = {}
 
-# --- Track last played wave music to avoid repeats ---
-last_wave_music = None
+# --- Simple playlist system for wave music ---
+wave_music_playlist = []
+current_playlist_index = 0
+current_playing_song = None
 
 # --- Helper: global reset back to title screen ---------------------------------
 def return_to_main_menu(show_menu=True):
@@ -415,7 +498,7 @@ def return_to_main_menu(show_menu=True):
     global wave_text_time, intro_font, intros, game_over_sfx_played, music_restart_time
     global tutorial_looping, _tut_pause_until, last_tut_restart, BACKGROUND
     global store, wave_transition, castle_building, castle_built_once
-    global pause_menu, options_menu, tutorial_overlay
+    global pause_menu, options_menu, tutorial_overlay, wave_music_playlist, current_playlist_index, current_playing_song
 
     # Core progression ---------------------------------------------------
     wave          = 1
@@ -460,6 +543,9 @@ def return_to_main_menu(show_menu=True):
     music_restart_time   = 0
     castle_building      = False
     castle_built_once    = False
+    wave_music_playlist = []
+    current_playlist_index = 0
+    current_playing_song = None
 
     # Wave transition dictionary reset ----------------------------------
     wave_transition.update({
@@ -491,7 +577,12 @@ def return_to_main_menu(show_menu=True):
     last_tut_restart = pygame.time.get_ticks()
     try:
         pygame.mixer.music.load(MUSIC_PATH)
-        pygame.mixer.music.set_volume(0.6)
+        # Use current music volume from options
+        music_volume = options_menu.get_setting('music_volume', 0.75)
+        if options_menu.get_setting('music_muted', False):
+            pygame.mixer.music.set_volume(0)
+        else:
+            pygame.mixer.music.set_volume(music_volume)
         pygame.mixer.music.play(-1)
     except Exception as e:
         print(f"[Audio] Failed to reload tutorial music: {e}")
@@ -739,6 +830,9 @@ while running:
             new_balls = castle.update(ms_castle, score, paddles, player_wall, balls)
             if new_balls:
                 balls.extend(new_balls)
+            
+            # Update player wall tiered rebuilding
+            player_wall.update(ms_castle)
 
     barrier_active = (now < barrier_timer)
 
@@ -1058,6 +1152,10 @@ while running:
                 dir_vec = pygame.Vector2(0, -1)
             else:
                 dir_vec = dir_vec.normalize()
+
+            # Play wall break sound for white cannonball destruction
+            if ball.color == WHITE and not ball.is_power and 'wall_break' in sounds:
+                sounds['wall_break'].play()
 
             # Remove the projectile before spawning effects
             balls.remove(ball)
@@ -1814,11 +1912,11 @@ while running:
                 next_castle, next_mask = create_castle_for_wave(next_wave)
                 chosen_music = MUSIC_PATH
                 if next_wave >= 2 and WAVE_MUSIC_FILES:
-                    import random
-                    available_tracks = [f for f in WAVE_MUSIC_FILES if f != last_wave_music]
-                    if not available_tracks:
-                        available_tracks = WAVE_MUSIC_FILES  # fallback if only one track
-                    chosen_music = random.choice(available_tracks)
+                    # Get a different song from the playlist (avoid current song)
+                    if not wave_music_playlist:
+                        init_wave_music_playlist()
+                    # Use get_next_wave_music() to ensure we get a different song
+                    chosen_music = get_next_wave_music()
                 wave_transition['next_castle'] = next_castle
                 wave_transition['next_music'] = chosen_music
 
@@ -1846,9 +1944,15 @@ while running:
             if wave_transition.get('next_music'):
                 try:
                     pygame.mixer.music.load(wave_transition['next_music'])
-                    pygame.mixer.music.set_volume(0.6)
-                    pygame.mixer.music.play(-1)
-                    last_wave_music = wave_transition['next_music']  # track last to prevent repeats
+                    # Use current music volume from options
+                    music_volume = options_menu.get_setting('music_volume', 0.75)
+                    if options_menu.get_setting('music_muted', False):
+                        pygame.mixer.music.set_volume(0)
+                    else:
+                        pygame.mixer.music.set_volume(music_volume)
+                    pygame.mixer.music.play(0)  # Play once without looping
+                    current_playing_song = wave_transition['next_music']  # Track what we're now playing
+                    print(f"[Audio] Started wave music: {wave_transition['next_music']}")
                 except Exception as e:
                     print(f"[Audio] Failed to load wave music: {e}")
         wave_transition.update({
@@ -1882,40 +1986,30 @@ while running:
         tutorial_looping = False
         _tut_pause_until = 0
     else:
-        # --- NEW: If music ends during a wave, pick a new random song (not the same as last) ---
+        # --- Simple playlist system: if music ends, play next song ---
         if wave >= 2 and WAVE_MUSIC_FILES and not pygame.mixer.music.get_busy():
-            import random
-            available_tracks = [f for f in WAVE_MUSIC_FILES if f != last_wave_music]
-            if not available_tracks:
-                available_tracks = WAVE_MUSIC_FILES  # fallback if only one track
-            chosen_music = random.choice(available_tracks)
+            next_song = get_next_wave_music()
             try:
-                pygame.mixer.music.load(chosen_music)
-                pygame.mixer.music.set_volume(0.6)
-                pygame.mixer.music.play(-1)
-                last_wave_music = chosen_music  # track last to prevent repeats
+                pygame.mixer.music.load(next_song)
+                # Use current music volume from options
+                music_volume = options_menu.get_setting('music_volume', 0.75)
+                if options_menu.get_setting('music_muted', False):
+                    pygame.mixer.music.set_volume(0)
+                else:
+                    pygame.mixer.music.set_volume(music_volume)
+                pygame.mixer.music.play(0)  # Play once without looping
+                print(f"[Audio] Playing next song: {next_song}")
             except Exception as e:
-                print(f"[Audio] Failed to load wave music: {e}")
+                print(f"[Audio] Failed to load next song: {e}")
     # --------------------------------------------------------------------
 
     # restart music after scheduled fade-out once the timer has elapsed
     if music_restart_time and pygame.time.get_ticks() >= music_restart_time:
-        # If we're on wave 2 or higher, pick a random available music file
+        # If we're on wave 2 or higher, start a random wave music track
         if wave >= 2 and WAVE_MUSIC_FILES:
-            import random
-            available_tracks = [f for f in WAVE_MUSIC_FILES if f != last_wave_music]
-            if not available_tracks:
-                available_tracks = WAVE_MUSIC_FILES  # fallback if only one track
-            chosen_music = random.choice(available_tracks)
-            try:
-                pygame.mixer.music.load(chosen_music)
-                pygame.mixer.music.set_volume(0.6)
-                pygame.mixer.music.play(-1)
-                last_wave_music = chosen_music  # track last to prevent repeats
-            except Exception as e:
-                print(f"[Audio] Failed to load wave music: {e}")
+            start_random_wave_music()
         else:
-            pygame.mixer.music.play(-1)  # restart immediately, looping
+            pygame.mixer.music.play(-1)  # restart immediately, looping (for wave 1)
         music_restart_time = 0
 
     # — Check lose conditions —
@@ -1967,13 +2061,21 @@ while running:
         intros = []
         game_over_sfx_played = False
         music_restart_time = 0
+        wave_music_playlist = []
+        current_playlist_index = 0
+        current_playing_song = None
         # --- Reset tutorial music state ---
         tutorial_looping = True
         _tut_pause_until = 0
         last_tut_restart = pygame.time.get_ticks()
         try:
             pygame.mixer.music.load(MUSIC_PATH)
-            pygame.mixer.music.set_volume(0.6)
+            # Use current music volume from options
+            music_volume = options_menu.get_setting('music_volume', 0.75)
+            if options_menu.get_setting('music_muted', False):
+                pygame.mixer.music.set_volume(0)
+            else:
+                pygame.mixer.music.set_volume(music_volume)
             # Playback will start in the title screen overlay
         except Exception as e:
             print(f"[Audio] Failed to reload tutorial music: {e}")

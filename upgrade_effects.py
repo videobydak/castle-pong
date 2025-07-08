@@ -320,7 +320,47 @@ def repair_wall_blocks(player_wall, count: int):
         
         for i in range(min(count, len(potential_repairs))):
             new_block = potential_repairs[i]
-            player_wall.blocks.append(new_block)
+            
+            # Determine the target tier based on current wall level
+            # Get the current wall tier from the color pair
+            current_tier = 1  # Default tier 1
+            if hasattr(player_wall, '_color_pair'):
+                from config import BLOCK_COLOR_L1, BLOCK_COLOR_L2, BLOCK_COLOR_L3
+                if player_wall._color_pair == BLOCK_COLOR_L2:
+                    current_tier = 2
+                elif player_wall._color_pair == BLOCK_COLOR_L3:
+                    current_tier = 3
+            
+            # For tier 2+ walls, implement tiered rebuilding
+            if current_tier >= 2:
+                # Start with tier 1 and rebuild up
+                key = (new_block.x, new_block.y)
+                player_wall.blocks.append(new_block)
+                player_wall.block_health[key] = 1
+                player_wall.block_colors[key] = BLOCK_COLOR_L1  # Start with tier 1 color
+                
+                # Add to rebuilding queue for tiered rebuild
+                if not hasattr(player_wall, 'rebuilding_blocks'):
+                    player_wall.rebuilding_blocks = {}
+                
+                player_wall.rebuilding_blocks[key] = {
+                    'time': pygame.time.get_ticks(),
+                    'current_tier': 1,
+                    'target_tier': current_tier,
+                    'block': new_block
+                }
+                
+                # Start pop animation for this tier
+                player_wall.pop_anims.append((new_block.copy(), pygame.time.get_ticks()))
+            else:
+                # Tier 1 walls rebuild normally
+                player_wall.blocks.append(new_block)
+                key = (new_block.x, new_block.y)
+                player_wall.block_health[key] = 1
+                player_wall.block_colors[key] = BLOCK_COLOR_L1
+                # Start pop animation
+                player_wall.pop_anims.append((new_block.copy(), pygame.time.get_ticks()))
+            
             repaired_count += 1
 
 def upgrade_wall_layer(castle, layer: int):
@@ -443,13 +483,15 @@ def upgrade_player_wall_layer(player_wall, level: int):
 
     if level == 1:
         player_wall._color_pair = BLOCK_COLOR_L2
-        # Set health to 2 for all blocks
+        # Set health to 2 for all blocks and update their colors
         for key in player_wall.block_health:
             player_wall.block_health[key] = 2
+            player_wall.block_colors[key] = BLOCK_COLOR_L2
     else:
         player_wall._color_pair = BLOCK_COLOR_L3
         for key in player_wall.block_health:
             player_wall.block_health[key] = 3
+            player_wall.block_colors[key] = BLOCK_COLOR_L3
 
     # Clear texture cache so new colour is generated
     if hasattr(player_wall, '_textures'):

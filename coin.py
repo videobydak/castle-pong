@@ -451,8 +451,8 @@ def _apply_coin_volume(sound):
                     sound.set_volume(0)
                     return
                 else:
-                    # Base volume of 0.8 multiplied by settings
-                    volume = 0.8 * options_menu.settings.get('sfx_volume', 0.5)
+                    # Base volume of 0.68 (15% quieter than 0.8) multiplied by settings
+                    volume = 0.68 * options_menu.settings.get('sfx_volume', 0.5)
                     sound.set_volume(volume)
                     return
         
@@ -467,12 +467,12 @@ def _apply_coin_volume(sound):
                         sound.set_volume(main_sound.get_volume() * 2.0)  # Coin sounds are typically louder
                         return
         
-        # Fallback to default volume
-        sound.set_volume(0.8)
+        # Fallback to default volume (15% quieter)
+        sound.set_volume(0.68)
     except Exception as e:
-        # Fallback to default volume if anything fails
+        # Fallback to default volume if anything fails (15% quieter)
         print(f"[Audio] Warning: Failed to apply coin volume settings: {e}")
-        sound.set_volume(0.8)
+        sound.set_volume(0.68)
 
 
 def _update_combo_timers(dt_ms: int):

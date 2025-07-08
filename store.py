@@ -111,15 +111,36 @@ class Store:
         """Load store sound effects."""
         try:
             self.purchase_sound = pygame.mixer.Sound("Sound Response - 8 Bit Jingles - Glide up Win.wav")
-            self.purchase_sound.set_volume(0.6)
+            # Volume will be set by options menu
         except pygame.error:
             pass
         
         try:
             self.error_sound = pygame.mixer.Sound("Sound Response - 8 Bit Retro - Slide Down Game Over.wav")
-            self.error_sound.set_volume(0.3)
+            # Volume will be set by options menu
         except pygame.error:
             pass
+    
+    def _update_sound_volumes(self):
+        """Update store sound volumes based on current settings."""
+        try:
+            import sys
+            if '__main__' in sys.modules and hasattr(sys.modules['__main__'], 'options_menu'):
+                options_menu = sys.modules['__main__'].options_menu
+                if hasattr(options_menu, 'settings'):
+                    if options_menu.settings.get('sfx_muted', False):
+                        if self.purchase_sound:
+                            self.purchase_sound.set_volume(0)
+                        if self.error_sound:
+                            self.error_sound.set_volume(0)
+                    else:
+                        sfx_vol = options_menu.settings.get('sfx_volume', 0.75)
+                        if self.purchase_sound:
+                            self.purchase_sound.set_volume(sfx_vol)
+                        if self.error_sound:
+                            self.error_sound.set_volume(sfx_vol * 0.5)  # Error sound is quieter
+        except Exception as e:
+            print(f"[Store] Failed to update sound volumes: {e}")
 
     def _load_pixel_font(self, size: int):
         """Load bundled PressStart2P font or fallback to monospace."""
@@ -282,14 +303,17 @@ class Store:
                             buy_button_rect = pygame.Rect(content_rect.right - 100, current_y + 5, 90, 30)
                             self._create_purchase_particles(buy_button_rect.center)
                             if self.purchase_sound:
+                                self._update_sound_volumes()
                                 self.purchase_sound.play()
                             self._add_feedback("Purchased!", (80, 200, 80))
                         else:
                             if self.error_sound:
+                                self._update_sound_volumes()
                                 self.error_sound.play()
                             self._add_feedback("Not enough coins!", (220, 80, 80))
                     else:
                         if self.error_sound:
+                            self._update_sound_volumes()
                             self.error_sound.play()
                         self._add_feedback("Cannot purchase!", (220, 80, 80))
                 return True

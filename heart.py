@@ -212,12 +212,34 @@ def _play_heal_sound():
     if _HEAL_SOUND is None:
         try:
             _HEAL_SOUND = pygame.mixer.Sound("Sound Response - 8 Bit Retro - Pulsating Arcade Glitch 2.wav")
-            _HEAL_SOUND.set_volume(0.5)
+            # Volume will be set by options menu
         except pygame.error as e:
             print("[Audio] Failed to load heal SFX:", e)
             _HEAL_SOUND = False  # mark as unusable
     if _HEAL_SOUND:
+        # Update volume before playing
+        _update_heal_sound_volume()
         _HEAL_SOUND.play()
+
+
+def _update_heal_sound_volume():
+    """Update heal sound volume based on current settings."""
+    global _HEAL_SOUND
+    if not _HEAL_SOUND:
+        return
+    
+    try:
+        import sys
+        if '__main__' in sys.modules and hasattr(sys.modules['__main__'], 'options_menu'):
+            options_menu = sys.modules['__main__'].options_menu
+            if hasattr(options_menu, 'settings'):
+                if options_menu.settings.get('sfx_muted', False):
+                    _HEAL_SOUND.set_volume(0)
+                else:
+                    sfx_vol = options_menu.settings.get('sfx_volume', 0.75)
+                    _HEAL_SOUND.set_volume(sfx_vol)
+    except Exception as e:
+        print(f"[Heart] Failed to update sound volume: {e}")
 
 
 def _heal_paddle(paddle):

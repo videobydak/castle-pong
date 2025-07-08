@@ -289,14 +289,8 @@ class TutorialOverlay:
         _main = sys.modules['__main__']
         _main.tutorial_looping = False  # ensure tutorial music logic disables
 
-        if getattr(_main, 'WAVE_MUSIC_FILES', None):
-            track = random.choice(_main.WAVE_MUSIC_FILES)
-            try:
-                pygame.mixer.music.load(track)
-                pygame.mixer.music.set_volume(0.6)
-                pygame.mixer.music.play(-1)
-            except pygame.error:
-                pass
+        if getattr(_main, 'start_random_wave_music', None):
+            _main.start_random_wave_music()
 
     # --- Legacy gradient generator retained for reference, unused now ---
     def _create_background(self):

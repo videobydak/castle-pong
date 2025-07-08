@@ -2,6 +2,7 @@ import pygame, random, math
 from config import *
 from cannon import Cannon
 
+
 # Constants moved from castle.py
 REPAIR_DELAY = 3000   # wait before repair starts (ms)
 REPAIR_TIME  = 15000  # duration of rebuild animation (ms)
@@ -749,59 +750,179 @@ def update_castle(castle, dt_ms, player_score=0, paddles=None, player_wall=None,
             repair_time = REPAIR_TIME / castle._repair_speed_mult
             progress = (elapsed - REPAIR_DELAY) / repair_time
             if progress >= 1.0:
-                new_block = pygame.Rect(pos[0], pos[1], castle.block_size, castle.block_size)
-                key = (new_block.x, new_block.y)
-                # Always set block_tiers for every rebuilt block
-                tier = getattr(castle, 'block_tiers', {}).get(key, 2)
-                castle.block_tiers[key] = tier
-                # Set health based on tier
-                extra = 0 if tier == 2 else (1 if tier == 3 else 2)
-                castle.block_health[key] = 1 + extra
-                castle.set_block_color_by_strength(key, tier)
-                castle.block_shapes[key] = 'wall'
-                castle.blocks.append(new_block)
-                del castle.destroyed_blocks[pos]
-                # start pop animation
-                castle.pop_anims.append({'rect': new_block, 'start': now})
-
-                # Layout changed – rebuild perimeter tracks
-                castle._build_perimeter_track()
-
-                # Rebuild all cannons that were attached to this block
-                for cinfo in destroyed_at.get('had_cannons', []):
-                    side = cinfo['side']
-
-                    # determine cannon position and direction based on side
-                    if side == 'top':
-                        cpos = pygame.Vector2(new_block.centerx, new_block.top - CANNON_GAP)
-                        bdir = pygame.Vector2(0,-1)
-                    elif side == 'bottom':
-                        cpos = pygame.Vector2(new_block.centerx, new_block.bottom + CANNON_GAP)
-                        bdir = pygame.Vector2(0,1)
-                    elif side == 'left':
-                        cpos = pygame.Vector2(new_block.left - CANNON_GAP, new_block.centery)
-                        bdir = pygame.Vector2(-1,0)
-                    else:  # right
-                        cpos = pygame.Vector2(new_block.right + CANNON_GAP, new_block.centery)
-                        bdir = pygame.Vector2(1,0)
-
-                    new_cannon = Cannon(
-                        block=new_block,
-                        side=side,
-                        pos=cpos,
-                        rail_info=castle.rail_info,
-                        total_shots_ref=lambda: castle.total_shots,
-                        shooting_enabled_ref=lambda: castle.shooting_enabled,
-                        smoke_particles_ref=castle.smoke_particles,
-                        level=castle.level
-                    )
-                    new_cannon.base_dir = bdir
-                    new_cannon.preview_idx = cinfo.get('preview_idx', random.randint(0,2))
-                    new_cannon.born = now
-                    new_cannon.initial_decision_pending = True
+                # Check if this is a tiered rebuild that needs to continue
+                if destroyed_at.get('tiered_rebuild', False):
+                    current_tier = destroyed_at['current_rebuild_tier']
+                    original_tier = destroyed_at['original_tier']
                     
-                    castle.cannons.append(new_cannon)
-                    new_cannon.rail_id, new_cannon.rail_idx = castle.rail_info.nearest_node((new_block.x, new_block.y))
+                    # Convert tier numbers to values: tier 1 = value 2, tier 2 = value 3, tier 3 = value 4
+                    current_tier_value = current_tier + 1
+                    
+                    # If we haven't reached the original tier yet, continue rebuilding
+                    if current_tier_value < original_tier:
+                        # Create the block at current tier
+                        new_block = pygame.Rect(pos[0], pos[1], castle.block_size, castle.block_size)
+                        key = (new_block.x, new_block.y)
+                        print(f"Creating intermediate tier block: key={key}, current_tier_value={current_tier_value}")
+                        
+                        # Remove any existing blocks at this position to prevent duplicates
+                        castle.blocks = [b for b in castle.blocks if (b.x, b.y) != key]
+                        
+                        # Set the current rebuild tier value
+                        castle.block_tiers[key] = current_tier_value
+                        # Set health based on current tier (same formula as original)
+                        extra = 0 if current_tier_value == 2 else (1 if current_tier_value == 3 else 2)
+                        castle.block_health[key] = 1 + extra
+                        castle.set_block_color_by_strength(key, current_tier_value)
+                        castle.block_shapes[key] = 'wall'
+                        castle.blocks.append(new_block)
+                        
+                        # Start pop animation for this tier
+                        castle.pop_anims.append({'rect': new_block, 'start': now})
+                        
+                        # Update the destroyed_blocks entry to rebuild the next tier
+                        destroyed_at['current_rebuild_tier'] = current_tier + 1
+                        destroyed_at['time'] = now  # Reset timer for next tier
+                        
+                        # Generate new random order for next tier
+                        order = list(range(castle.TILE_SUBDIVS[0]*castle.TILE_SUBDIVS[1]))
+                        random.shuffle(order)
+                        destroyed_at['order'] = order
+                        
+                        # Layout changed – rebuild perimeter tracks
+                        castle._build_perimeter_track()
+                        continue
+                    else:
+                        # We've reached the original tier, finalize the rebuild
+                        new_block = pygame.Rect(pos[0], pos[1], castle.block_size, castle.block_size)
+                        key = (new_block.x, new_block.y)
+                        print(f"Finalizing tiered rebuild: key={key}, original_tier={original_tier}")
+                        
+                        # Remove any existing blocks at this position to prevent duplicates
+                        castle.blocks = [b for b in castle.blocks if (b.x, b.y) != key]
+                        
+                        # Set the final tier
+                        castle.block_tiers[key] = original_tier
+                        # Update the original tier to reflect what this block was rebuilt as
+                        castle.original_block_tiers[key] = original_tier
+                        # Set health based on final tier
+                        extra = 0 if original_tier == 2 else (1 if original_tier == 3 else 2)
+                        castle.block_health[key] = 1 + extra
+                        castle.set_block_color_by_strength(key, original_tier)
+                        castle.block_shapes[key] = 'wall'
+                        castle.blocks.append(new_block)
+                        print(f"Added block to castle.blocks: key={key}")
+                        
+                        # Increment rebuild count for this block
+                        if not hasattr(castle, 'block_rebuild_count'):
+                            castle.block_rebuild_count = {}
+                        castle.block_rebuild_count[key] = castle.block_rebuild_count.get(key, 0) + 1
+                        
+                        del castle.destroyed_blocks[pos]
+                        # start pop animation
+                        castle.pop_anims.append({'rect': new_block, 'start': now})
+                        
+                        # Layout changed – rebuild perimeter tracks
+                        castle._build_perimeter_track()
+                        
+                        # Rebuild all cannons that were attached to this block
+                        for cinfo in destroyed_at.get('had_cannons', []):
+                            side = cinfo['side']
+
+                            # determine cannon position and direction based on side
+                            if side == 'top':
+                                cpos = pygame.Vector2(new_block.centerx, new_block.top - CANNON_GAP)
+                                bdir = pygame.Vector2(0,-1)
+                            elif side == 'bottom':
+                                cpos = pygame.Vector2(new_block.centerx, new_block.bottom + CANNON_GAP)
+                                bdir = pygame.Vector2(0,1)
+                            elif side == 'left':
+                                cpos = pygame.Vector2(new_block.left - CANNON_GAP, new_block.centery)
+                                bdir = pygame.Vector2(-1,0)
+                            else:  # right
+                                cpos = pygame.Vector2(new_block.right + CANNON_GAP, new_block.centery)
+                                bdir = pygame.Vector2(1,0)
+
+                            new_cannon = Cannon(
+                                block=new_block,
+                                side=side,
+                                pos=cpos,
+                                rail_info=castle.rail_info,
+                                total_shots_ref=lambda: castle.total_shots,
+                                shooting_enabled_ref=lambda: castle.shooting_enabled,
+                                smoke_particles_ref=castle.smoke_particles,
+                                level=castle.level
+                            )
+                            new_cannon.base_dir = bdir
+                            new_cannon.preview_idx = cinfo.get('preview_idx', random.randint(0,2))
+                            new_cannon.born = now
+                            new_cannon.initial_decision_pending = True
+                            
+                            castle.cannons.append(new_cannon)
+                            new_cannon.rail_id, new_cannon.rail_idx = castle.rail_info.nearest_node((new_block.x, new_block.y))
+                else:
+                    # Normal rebuild (tier 1 blocks or non-tiered blocks)
+                    new_block = pygame.Rect(pos[0], pos[1], castle.block_size, castle.block_size)
+                    key = (new_block.x, new_block.y)
+                    # Normal rebuilds are always tier 1 blocks (tier value 2)
+                    tier = 2
+                    castle.block_tiers[key] = tier
+                    # Update the original tier to reflect what this block was rebuilt as
+                    castle.original_block_tiers[key] = tier
+                    # Set health based on tier (tier 2 = 1 health)
+                    castle.block_health[key] = 1
+                    castle.set_block_color_by_strength(key, tier)
+                    castle.block_shapes[key] = 'wall'
+                    castle.blocks.append(new_block)
+                    print(f"Added block to castle.blocks (normal rebuild): key={key}, tier={tier}")
+                    
+                    # Increment rebuild count for this block
+                    if not hasattr(castle, 'block_rebuild_count'):
+                        castle.block_rebuild_count = {}
+                    castle.block_rebuild_count[key] = castle.block_rebuild_count.get(key, 0) + 1
+                    
+                    del castle.destroyed_blocks[pos]
+                    # start pop animation
+                    castle.pop_anims.append({'rect': new_block, 'start': now})
+
+                    # Layout changed – rebuild perimeter tracks
+                    castle._build_perimeter_track()
+
+                    # Rebuild all cannons that were attached to this block
+                    for cinfo in destroyed_at.get('had_cannons', []):
+                        side = cinfo['side']
+
+                        # determine cannon position and direction based on side
+                        if side == 'top':
+                            cpos = pygame.Vector2(new_block.centerx, new_block.top - CANNON_GAP)
+                            bdir = pygame.Vector2(0,-1)
+                        elif side == 'bottom':
+                            cpos = pygame.Vector2(new_block.centerx, new_block.bottom + CANNON_GAP)
+                            bdir = pygame.Vector2(0,1)
+                        elif side == 'left':
+                            cpos = pygame.Vector2(new_block.left - CANNON_GAP, new_block.centery)
+                            bdir = pygame.Vector2(-1,0)
+                        else:  # right
+                            cpos = pygame.Vector2(new_block.right + CANNON_GAP, new_block.centery)
+                            bdir = pygame.Vector2(1,0)
+
+                        new_cannon = Cannon(
+                            block=new_block,
+                            side=side,
+                            pos=cpos,
+                            rail_info=castle.rail_info,
+                            total_shots_ref=lambda: castle.total_shots,
+                            shooting_enabled_ref=lambda: castle.shooting_enabled,
+                            smoke_particles_ref=castle.smoke_particles,
+                            level=castle.level
+                        )
+                        new_cannon.base_dir = bdir
+                        new_cannon.preview_idx = cinfo.get('preview_idx', random.randint(0,2))
+                        new_cannon.born = now
+                        new_cannon.initial_decision_pending = True
+                        
+                        castle.cannons.append(new_cannon)
+                        new_cannon.rail_id, new_cannon.rail_idx = castle.rail_info.nearest_node((new_block.x, new_block.y))
 
     # Remove finished pop animations
     castle.pop_anims = [p for p in castle.pop_anims if now - p['start'] < castle.POP_DURATION]

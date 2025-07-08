@@ -56,7 +56,7 @@ def _prepare_shot_sounds():
 
     try:
         base = pygame.mixer.Sound("Artlist Original - 8 Bits and Pieces - Noise Fire Shot.wav")
-        base.set_volume(0.4)
+        # Volume will be set by options menu
 
         def _pitch_shift(sound: pygame.mixer.Sound, factor: float) -> pygame.mixer.Sound:
             arr = pygame.sndarray.array(sound)
@@ -64,7 +64,7 @@ def _prepare_shot_sounds():
             idx = np.linspace(0, orig_len - 1, int(orig_len / factor)).astype(np.int32)
             shifted = arr[idx]
             snd = pygame.sndarray.make_sound(shifted.copy())
-            snd.set_volume(sound.get_volume())
+            # Volume will be set by options menu
             return snd
 
         _SHOT_SOUNDS = {
@@ -75,6 +75,9 @@ def _prepare_shot_sounds():
             '1.9': _pitch_shift(base, 1.9),   # very high pitch
         }
         print('[Audio] Cannon shot sounds loaded')
+        
+        # Update volumes based on current settings
+        _update_cannon_sound_volumes()
     except pygame.error as e:
         print('[Audio] Failed to load cannon shot sound:', e)
         _SHOT_SOUNDS = {}
@@ -82,6 +85,30 @@ def _prepare_shot_sounds():
         # Handle numpy or resampling errors gracefully
         print('[Audio] Pitch-shift preparation failed:', e)
         _SHOT_SOUNDS = {'normal': None}
+
+
+def _update_cannon_sound_volumes():
+    """Update cannon sound volumes based on current settings."""
+    global _SHOT_SOUNDS
+    if not _SHOT_SOUNDS:
+        return
+    
+    try:
+        import sys
+        if '__main__' in sys.modules and hasattr(sys.modules['__main__'], 'options_menu'):
+            options_menu = sys.modules['__main__'].options_menu
+            if hasattr(options_menu, 'settings'):
+                if options_menu.settings.get('sfx_muted', False):
+                    for sound in _SHOT_SOUNDS.values():
+                        if sound:
+                            sound.set_volume(0)
+                else:
+                    sfx_vol = options_menu.settings.get('sfx_volume', 0.75)
+                    for sound in _SHOT_SOUNDS.values():
+                        if sound:
+                            sound.set_volume(sfx_vol)
+    except Exception as e:
+        print(f"[Castle] Failed to update cannon sound volumes: {e}")
 
 class Castle:
     TILE_SUBDIVS = (4,5)  # columns, rows -> 20 tiles
@@ -157,6 +184,8 @@ class Castle:
 
         self.block_textures = {}  # color_tuple -> texture
         self.block_tiers = {}
+        self.original_block_tiers = {}  # Track the original tier of each block
+        self.block_rebuild_count = {}  # Track how many times each block has been rebuilt
 
         # Candidate edge blocks for random cannon placement (populated below)
         top_candidates = []
@@ -260,7 +289,12 @@ class Castle:
                     self.block_colors[key] = BLOCK_COLOR_DEFAULT
                     self.block_shapes[key] = 'wall'
 
+                print(f"Adding block to castle.blocks (init): key={key}")
                 self.blocks.append(r)
+
+                # Set default tier for blocks created in constructor (tier 1 = value 2)
+                self.block_tiers[key] = 2
+                self.original_block_tiers[key] = 2
 
                 if self.level > 1:
                     self.block_health[key] = 2
@@ -382,9 +416,13 @@ class Castle:
                     size,
                 )
                 key = (r.x, r.y)
+                print(f"Adding rounded corner block to castle.blocks: key={key}")
                 self.blocks.append(r)
                 self.block_shapes[key] = f'round_{corner_tag}'
                 self.block_colors[key] = BLOCK_COLOR_DEFAULT
+                # Set default tier for rounded corner blocks (tier 1 = value 2)
+                self.block_tiers[key] = 2
+                self.original_block_tiers[key] = 2
                 if self.level > 1:
                     self.block_health[key] = 2
 
@@ -406,6 +444,11 @@ class Castle:
 
     def get_block_texture(self, block):
         key = (block.x, block.y)
+        
+        # Safeguard: warn if this block is not in our blocks list (indicates stale reference)
+        if block not in self.blocks:
+            print(f"WARNING: Getting texture for block not in castle.blocks at {key} - possible stale reference")
+        
         # Ensure key exists to avoid runtime errors on stale rects
         if key not in self.block_shapes:
             self.block_shapes[key] = 'wall'
@@ -417,6 +460,7 @@ class Castle:
         # ball is overlapping the tile.  We fall back to the default
         # tier-1 colour so the game can continue uninterrupted.
         if key not in self.block_colors:
+            print(f"WARNING: Block {key} has no color, using default: {BLOCK_COLOR_DEFAULT}")
             self.block_colors[key] = BLOCK_COLOR_DEFAULT
 
         color = self.block_colors[key]
@@ -486,6 +530,83 @@ class Castle:
 
     def hit_block(self, block, impact_point=None, impact_angle=None):
         key = (block.x, block.y)
+        
+        # Check if this block is currently being rebuilt
+        if key in self.destroyed_blocks:
+            # Block is being rebuilt - reset to tier 1 and restart rebuild
+            destroyed_info = self.destroyed_blocks[key]
+            original_tier = destroyed_info.get('original_tier', 2)
+            
+            # Remove the block from the blocks list (it's being rebuilt)
+            if block in self.blocks:
+                print(f"Removing block from castle.blocks (rebuild hit): key={key}")
+                self.blocks.remove(block)
+            
+            # Clean up any existing data for this block
+            if key in self.block_health:
+                del self.block_health[key]
+            if key in self.block_colors:
+                del self.block_colors[key]
+            if key in self.block_shapes:
+                del self.block_shapes[key]
+            if key in self.block_cracks:
+                del self.block_cracks[key]
+            if key in self.block_tiers:
+                del self.block_tiers[key]
+            if key in self.original_block_tiers:
+                del self.original_block_tiers[key]
+            if key in getattr(self, 'block_rebuild_count', {}):
+                del self.block_rebuild_count[key]
+            
+            # Reset rebuild state to tier 1
+            order = list(range(Castle.TILE_SUBDIVS[0]*Castle.TILE_SUBDIVS[1]))
+            random.shuffle(order)
+            
+            # Check if any cannon was mounted on this block so we can rebuild it later
+            attached_cannons = [c for c in self.cannons if c.block == block]
+            for c in attached_cannons:
+                self.cannons.remove(c)
+            
+            # For tier 3+ blocks (value 3+), implement tiered rebuilding
+            # Tier 1 blocks (value 2) rebuild normally as tier 1
+            if original_tier >= 3:
+                # Start rebuilding at tier 1 (lowest tier)
+                rebuild_tier = 1
+                self.destroyed_blocks[key] = {
+                    'time': pygame.time.get_ticks(),
+                    'order': order,
+                    'had_cannons': [
+                        {
+                            'side': c.side,
+                            'preview_idx': c.preview_idx
+                        } for c in attached_cannons
+                    ],
+                    'original_tier': original_tier,
+                    'current_rebuild_tier': rebuild_tier,
+                    'tiered_rebuild': True
+                }
+            else:
+                # Tier 1 blocks (value 2) rebuild normally as tier 1
+                self.destroyed_blocks[key] = {
+                    'time': pygame.time.get_ticks(),
+                    'order': order,
+                    'had_cannons': [
+                        {
+                            'side': c.side,
+                            'preview_idx': c.preview_idx
+                        } for c in attached_cannons
+                    ]
+                }
+            
+            # Recompute perimeter tracks as the layout changed
+            self._build_perimeter_track()
+            
+            # Apply rebuild setbacks & debris for in-progress blocks
+            self._apply_rebuild_setback()
+            
+            return  # Block reset and rebuild restarted
+        
+        # Normal block hit logic (block is not being rebuilt)
         if key in self.block_health:
             prev_health = self.block_health[key]
             # Reduce health first
@@ -549,6 +670,7 @@ class Castle:
         if key in self.block_cracks:
             del self.block_cracks[key]
 
+        print(f"Removing block from castle.blocks: key={key}")
         self.blocks.remove(block)
         if key in self.block_health:
             del self.block_health[key]
@@ -556,6 +678,11 @@ class Castle:
             del self.block_colors[key]
         if key in self.block_shapes:
             del self.block_shapes[key]
+        # Clean up rebuild count and original tier tracking when block is permanently destroyed
+        if key in getattr(self, 'block_rebuild_count', {}):
+            del self.block_rebuild_count[key]
+        if key in getattr(self, 'original_block_tiers', {}):
+            del self.original_block_tiers[key]
 
         order = list(range(Castle.TILE_SUBDIVS[0]*Castle.TILE_SUBDIVS[1]))
         random.shuffle(order)
@@ -565,16 +692,49 @@ class Castle:
         for c in attached_cannons:
             self.cannons.remove(c)
 
-        self.destroyed_blocks[key] = {
-            'time': pygame.time.get_ticks(),
-            'order': order,
-            'had_cannons': [
-                {
-                    'side': c.side,
-                    'preview_idx': c.preview_idx
-                } for c in attached_cannons
-            ]
-        }
+        # Get the original tier of this block
+        # Use original_block_tiers if available, otherwise fall back to current tier
+        original_tier = getattr(self, 'original_block_tiers', {}).get(key, 
+                    getattr(self, 'block_tiers', {}).get(key, 2))
+        
+        # Check if this block has already been rebuilt once
+        rebuild_count = getattr(self, 'block_rebuild_count', {}).get(key, 0)
+        
+        # Only allow rebuilding if this is the first time being destroyed
+        if rebuild_count == 0:
+            # For tier 3+ blocks (value 3+), implement tiered rebuilding
+            # Tier 1 blocks (value 2) rebuild normally as tier 1
+            if original_tier >= 3:
+                # Start rebuilding at tier 1 (lowest tier)
+                rebuild_tier = 1
+                self.destroyed_blocks[key] = {
+                    'time': pygame.time.get_ticks(),
+                    'order': order,
+                    'had_cannons': [
+                        {
+                            'side': c.side,
+                            'preview_idx': c.preview_idx
+                        } for c in attached_cannons
+                    ],
+                    'original_tier': original_tier,
+                    'current_rebuild_tier': rebuild_tier,
+                    'tiered_rebuild': True
+                }
+            else:
+                # Tier 1 blocks (value 2) rebuild normally as tier 1
+                self.destroyed_blocks[key] = {
+                    'time': pygame.time.get_ticks(),
+                    'order': order,
+                    'had_cannons': [
+                        {
+                            'side': c.side,
+                            'preview_idx': c.preview_idx
+                        } for c in attached_cannons
+                    ]
+                }
+        else:
+            # Block has already been rebuilt once, don't rebuild again
+            print(f"Block at {key} has already been rebuilt {rebuild_count} times - not rebuilding again")
 
         # Recompute perimeter tracks as the layout changed
         self._build_perimeter_track()
@@ -1096,6 +1256,8 @@ class Castle:
                     extra = 0 if val == 2 else (1 if val == 3 else 2)
                     self.block_health[key] = 1 + extra
                     self.block_tiers[key] = val
+                    # Track the original tier for this block
+                    self.original_block_tiers[key] = val
                     self.set_block_color_by_strength(key, val)
                     self.block_shapes[key] = 'wall'
                     print(f"[DEBUG]   ({x},{y}) tier={val} color={self.block_colors[key]} health={self.block_health.get(key, 2)}")
@@ -1154,11 +1316,16 @@ class Castle:
 
     def set_block_color_by_strength(self, key, tier):
         """Assign the correct color for a block based on its reinforcement tier (2, 3, 4)."""
+        print(f"set_block_color_by_strength: key={key}, tier={tier}")
         if tier == 2:
             self.block_colors[key] = BLOCK_COLOR_L1
+            print(f"Set color to BLOCK_COLOR_L1: {BLOCK_COLOR_L1}")
         elif tier == 3:
             self.block_colors[key] = BLOCK_COLOR_L2
+            print(f"Set color to BLOCK_COLOR_L2: {BLOCK_COLOR_L2}")
         elif tier == 4:
             self.block_colors[key] = BLOCK_COLOR_L3
+            print(f"Set color to BLOCK_COLOR_L3: {BLOCK_COLOR_L3}")
         else:
             self.block_colors[key] = BLOCK_COLOR_DEFAULT  # fallback
+            print(f"Set color to BLOCK_COLOR_DEFAULT: {BLOCK_COLOR_DEFAULT}")

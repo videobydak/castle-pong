@@ -11,19 +11,18 @@ class PlayerWall:
     all blocks are gone the game is lost.  The wall persists across
     waves (it does **not** rebuild/reset).
     """
+    POP_DURATION = 400  # ms - same as castle
+    
     def __init__(self, rows: int = 2, block_size: int = BLOCK_SIZE):
         self.block_size = block_size
         self.rows = rows
         self.blocks = []  # list[pygame.Rect]
         self.block_health = {}  # key -> health (1-3)
+        self.block_colors = {}  # key -> color_pair (for individual block colors)
         self._textures = {}  # cache colour -> surface
         self._color_pair = BLOCK_COLOR_L1
         self.block_cracks = {}  # key -> CrackAnimator
-        # Pop-in animations for newly rebuilt blocks (duration matches castle)
-        self.pop_anims = []  # list of (rect, start_time)
-
-        # Duration for pop animation (ms) – mirror Castle.POP_DURATION
-        self.POP_DURATION = 400
+        self.pop_anims = []  # list of (rect, start_time) - for Stonemason's Kit and golem rebuilding only
 
         # Position wall so the bottom-most row sits right on the bottom
         # edge of the screen.  This may overlap the paddle slightly – that
@@ -43,7 +42,9 @@ class PlayerWall:
                     continue
                 self.blocks.append(pygame.Rect(x, y, w, block_size))
                 # Default health 1 (tier1). Will be upgraded by Fortified Walls.
-                self.block_health[(x, y)] = 1
+                key = (x, y)
+                self.block_health[key] = 1
+                self.block_colors[key] = BLOCK_COLOR_L1
 
     # ------------------------------------------------------------------
     # Rendering helpers
@@ -56,8 +57,18 @@ class PlayerWall:
         return self._textures[key]
 
     def draw(self, surface):
-        tex = self._get_texture()
         for b in self.blocks:
+            key = (b.x, b.y)
+            # Get the color for this specific block
+            block_color = self.block_colors.get(key, self._color_pair)
+            
+            # Generate texture for this block's color
+            tex_key = (*block_color, self.block_size)
+            if tex_key not in self._textures:
+                from utils import make_bricks
+                self._textures[tex_key] = make_bricks(self.block_size, *block_color)
+            tex = self._textures[tex_key]
+            
             # If this is a narrow final column block, clip the texture
             if b.width != self.block_size:
                 clipped_tex = tex.subsurface((0, 0, b.width, b.height))
@@ -67,32 +78,72 @@ class PlayerWall:
             # outline
             pygame.draw.rect(surface, (0, 0, 0), b, 1)
             # Draw cracks if present
-            key = (b.x, b.y)
             if key in self.block_cracks:
                 self.block_cracks[key].draw(surface, show_debug=False)
 
-        # Pop-in animation for rebuilt blocks
+        # Draw tiered rebuilding progress
+        if hasattr(self, 'rebuilding_blocks'):
+            now = pygame.time.get_ticks()
+            REBUILD_DELAY = 1000  # 1 second delay between tiers
+            REBUILD_TIME = 3000   # 3 seconds for each tier rebuild
+            
+            for key, rebuild_info in self.rebuilding_blocks.items():
+                elapsed = now - rebuild_info['time']
+                if elapsed < REBUILD_DELAY:
+                    continue  # Still in delay period
+                
+                progress = (elapsed - REBUILD_DELAY) / REBUILD_TIME
+                if progress >= 1.0:
+                    continue  # Will be handled in update soon
+                
+                block = rebuild_info['block']
+                # Draw rebuilding progress (similar to castle rebuilding)
+                # For now, just draw a simple progress indicator
+                progress_width = int(block.width * progress)
+                progress_rect = pygame.Rect(block.x, block.y, progress_width, block.height)
+                pygame.draw.rect(surface, (100, 100, 100), progress_rect)
+                pygame.draw.rect(surface, (0, 0, 0), progress_rect, 1)
+
+        # Draw pop animations (for Stonemason's Kit and golem rebuilding)
         now = pygame.time.get_ticks()
-        for anim in self.pop_anims[:]:
-            rect, start = anim
-            elapsed = now - start
-            if elapsed >= self.POP_DURATION:
-                self.pop_anims.remove(anim)
-                continue
-            prog = elapsed / self.POP_DURATION  # 0→1
-            # Scale from small to full size
-            scale = prog
-            w = int(rect.width * scale)
-            h = int(rect.height * scale)
-            scaled = pygame.Rect(0, 0, max(2, w), max(2, h))
-            scaled.center = rect.center
-            # Fade-in alpha
-            alpha = int(255 * prog)
-            pop_surf = pygame.Surface((scaled.width, scaled.height), pygame.SRCALPHA)
-            pygame.draw.rect(pop_surf, (*self._color_pair[0], alpha), pop_surf.get_rect())
-            # Blit with outline
-            surface.blit(pop_surf, scaled.topleft)
-            pygame.draw.rect(surface, (0,0,0,alpha), scaled, 1)
+        for p in self.pop_anims:
+            age = now - p[1]  # p is (rect, start_time)
+            t = age / self.POP_DURATION
+            if t >= 1.0:
+                continue  # Animation finished
+                
+            rect = p[0]
+            scale = 1 + 0.3 * math.sin(math.pi * t)
+            scaled_size = int(self.block_size * scale)
+            
+            # Get texture for this block
+            key = (rect.x, rect.y)
+            block_color = self.block_colors.get(key, self._color_pair)
+            tex_key = (*block_color, self.block_size)
+            if tex_key not in self._textures:
+                from utils import make_bricks
+                self._textures[tex_key] = make_bricks(self.block_size, *block_color)
+            tex = self._textures[tex_key]
+            
+            # Scale the texture
+            if rect.width != self.block_size:
+                # Handle narrow final column blocks
+                clipped_tex = tex.subsurface((0, 0, rect.width, rect.height))
+                scaled_tex = pygame.transform.scale(clipped_tex, (int(rect.width * scale), int(rect.height * scale)))
+            else:
+                scaled_tex = pygame.transform.scale(tex, (scaled_size, scaled_size))
+            
+            draw_rect = scaled_tex.get_rect(center=rect.center)
+            surface.blit(scaled_tex, draw_rect)
+
+            # shockwave ring for pop animation
+            shockwave_progress = t  # t goes from 0 to 1 over POP_DURATION
+            max_radius = self.block_size * 2
+            rad = int(max_radius * shockwave_progress)
+            if 2 < rad < max_radius:
+                pygame.draw.circle(surface, (255,255,255), rect.center, rad, 2)
+
+
 
     # ------------------------------------------------------------------
     # Damage handling
@@ -110,6 +161,31 @@ class PlayerWall:
         # Reduce health by 1 hit
         hp -= 1
         self.block_health[key] = hp
+        
+        # Update color based on remaining health
+        if hp > 0:
+            # Determine current tier based on block's original color
+            current_tier = 1  # Default tier 1
+            from config import BLOCK_COLOR_L1, BLOCK_COLOR_L2, BLOCK_COLOR_L3
+            block_color = self.block_colors.get(key, BLOCK_COLOR_L1)
+            if block_color == BLOCK_COLOR_L2:
+                current_tier = 2
+            elif block_color == BLOCK_COLOR_L3:
+                current_tier = 3
+            
+            # Update color based on health and tier
+            if current_tier == 3:  # Layer-3: 3→2→1→destroy
+                if hp == 2:
+                    self.block_colors[key] = BLOCK_COLOR_L3
+                elif hp == 1:
+                    self.block_colors[key] = BLOCK_COLOR_L2
+            elif current_tier == 2:  # Layer-2: 2→1→destroy
+                if hp == 1:
+                    self.block_colors[key] = BLOCK_COLOR_L2
+            
+            # Clear texture cache so new color is generated
+            if hasattr(self, '_textures'):
+                self._textures = {}
 
         # --- Crack logic for multi-tier blocks ---
         if hp > 0:
@@ -158,5 +234,54 @@ class PlayerWall:
                     deb['dig_frames'] = random.randint(int(15 * SCALE), int(90 * SCALE))
                 debris_list.append(deb)
 
-            # Queue pop animation when a block is rebuilt
-            self.pop_anims.append((block.copy(), pygame.time.get_ticks())) 
+        # Do NOT add a pop animation here! (Fixes black square scaling bug)
+
+    def update(self, dt_ms: int):
+        """Update tiered rebuilding for player wall blocks."""
+        if not hasattr(self, 'rebuilding_blocks'):
+            return
+        
+        now = pygame.time.get_ticks()
+        REBUILD_DELAY = 1000  # 1 second delay between tiers
+        REBUILD_TIME = 3000   # 3 seconds for each tier rebuild
+        
+        for key, rebuild_info in list(self.rebuilding_blocks.items()):
+            elapsed = now - rebuild_info['time']
+            
+            if elapsed < REBUILD_DELAY:
+                continue  # Still in delay period
+            
+            progress = (elapsed - REBUILD_DELAY) / REBUILD_TIME
+            if progress >= 1.0:
+                # Current tier is complete, move to next tier
+                current_tier = rebuild_info['current_tier']
+                target_tier = rebuild_info['target_tier']
+                
+                if current_tier < target_tier:
+                    # Upgrade to next tier
+                    next_tier = current_tier + 1
+                    self.block_health[key] = next_tier
+                    
+                    # Update color based on tier
+                    from config import BLOCK_COLOR_L2, BLOCK_COLOR_L3
+                    if next_tier == 2:
+                        self._color_pair = BLOCK_COLOR_L2
+                    elif next_tier == 3:
+                        self._color_pair = BLOCK_COLOR_L3
+                    
+                    # Clear texture cache so new color is generated
+                    if hasattr(self, '_textures'):
+                        self._textures = {}
+                    
+                    # Update rebuild info for next tier
+                    rebuild_info['current_tier'] = next_tier
+                    rebuild_info['time'] = now
+                    
+                    # Player wall blocks don't use pop animations
+                else:
+                    # Reached target tier, remove from rebuilding queue
+                    del self.rebuilding_blocks[key]
+        
+        # Clean up finished pop animations
+        now = pygame.time.get_ticks()
+        self.pop_anims = [p for p in self.pop_anims if now - p[1] < self.POP_DURATION] 
