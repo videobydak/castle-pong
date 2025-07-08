@@ -62,11 +62,19 @@ def apply_passive_upgrades(store, paddles: Dict[str, Any], player_wall, castle):
         level = store.get_upgrade_level('paddle_width')
         width_bonus = level * 30  # 30 pixels per level
         for paddle in paddles.values():
-            if not hasattr(paddle, 'upgrade_width_applied'):
-                paddle.base_len = PADDLE_LEN + width_bonus
-                paddle.logical_width = PADDLE_LEN + width_bonus
-                paddle.target_width = PADDLE_LEN + width_bonus
+            # Update base_width to include store upgrades
+            paddle.base_width = PADDLE_LEN + width_bonus
+            # Update actual_width if no widen potion is active
+            if paddle.widen_stack == 0:
+                paddle.actual_width = paddle.base_width
+                paddle.logical_width = paddle.actual_width
                 paddle._start_width_animation(paddle.logical_width)
+            else:
+                # If widen potion is active, only update actual_width
+                # The logical_width will be updated when potion expires
+                paddle.actual_width = paddle.base_width
+            # Mark that upgrade has been applied
+            if not hasattr(paddle, 'upgrade_width_applied'):
                 paddle.upgrade_width_applied = True
     
     # Wind Walker's Grace - Paddle agility (reduced inertia)
@@ -101,7 +109,7 @@ def apply_consumable_upgrades(store, upgrade_id: str, paddles: Dict[str, Any], p
     if upgrade_id == 'paddle_heal':
         # Healer's Balm - Restore paddle to full length
         if paddles:
-            weakest = min(paddles.values(), key=lambda p: p.width)
+            weakest = min(paddles.values(), key=lambda p: p.logical_width)
             heal_paddle(weakest)
     
     elif upgrade_id == 'wall_repair':
@@ -263,7 +271,7 @@ def apply_emergency_healing(store, paddles: Dict[str, Any]):
         return
     
     for paddle in paddles.values():
-        if paddle.width <= 30:  # critical threshold
+        if paddle.logical_width <= 30:  # critical threshold
             heal_paddle(paddle)
             upgrade_states['emergency_heal_uses'] -= 1
             if upgrade_states['emergency_heal_uses'] <= 0:
@@ -271,9 +279,13 @@ def apply_emergency_healing(store, paddles: Dict[str, Any]):
 
 def heal_paddle(paddle):
     """Restore paddle length."""
-    # Restore paddle to full length
-    paddle.logical_width = PADDLE_LEN
-    paddle._start_width_animation(PADDLE_LEN)
+    # Restore paddle to its base width (which includes store upgrades)
+    paddle.actual_width = paddle.base_width
+    # If no widen potion is active, update logical width immediately
+    if paddle.widen_stack == 0:
+        paddle.logical_width = paddle.actual_width
+        paddle._start_width_animation(paddle.logical_width)
+    # If widen potion is active, logical width will be updated when potion expires
     
     # Trigger heal pulse visual effect
     paddle.heal_pulse_timer = 30  # 30 frames of pulsing

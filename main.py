@@ -1254,14 +1254,14 @@ while running:
                         # Check for fireball immunity
                         if not hasattr(p, 'fireball_immunity_until') or now >= getattr(p, 'fireball_immunity_until', 0):
                             if power_timers.get(side, [None,0])[0] != 'widen':
-                                old_width = p.width
+                                old_width = p.logical_width
                                 if not getattr(p, 'fire_resistance', False):
                                     p.shrink()
                                 # Play paddle damage sound for fireball
                                 if 'paddle_damage' in sounds:
                                     sounds['paddle_damage'].play()
                                 # screen shake intensity based on remaining width
-                                ratio = 1 - (p.width / p.base_len)
+                                ratio = 1 - (p.logical_width / p.base_width)
                                 shake_intensity = int(2 + 8 * ratio)
                                 shake_frames = 8
                                 # wood debris particles at paddle ends
@@ -1271,9 +1271,8 @@ while running:
                                     for _ in range(3):
                                         vel = pygame.Vector2(random.uniform(-1,1), random.uniform(-1,1))
                                         particles.append(Particle(ex, ey, vel, debris_color, life=20))
-                    # Grow paddle if widen is active
-                    if power_timers.get(side, [None,0])[0] == 'widen':
-                        p.grow_on_hit()
+                    # Grow paddle on cannonball hit
+                    p.grow_on_hit()
                     # Reflect off paddle rectangle then add spin & curved redirection
                     curved_paddle_reflect(ball, p)
                     # Apply 2D collision physics
@@ -1332,9 +1331,8 @@ while running:
                                     castle.debris.append(deb)
                             break
                 else:
-                    # Grow paddle if widen is active
-                    if power_timers.get(side, [None,0])[0] == 'widen':
-                        p.grow_on_hit()
+                    # Grow paddle on cannonball hit
+                    p.grow_on_hit()
                     # white ball bounce with reflect, spin and curved redirection
                     curved_paddle_reflect(ball, p)
                     # Apply 2D collision physics

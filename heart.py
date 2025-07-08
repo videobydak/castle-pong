@@ -147,7 +147,7 @@ def _compute_spawn_chance() -> float:
     from config import PADDLE_LEN
     if not _last_paddles:
         return 0.0
-    weakest = min(p.width for p in _last_paddles.values())
+    weakest = min(p.logical_width for p in _last_paddles.values())
     # No chance once weakest paddle ≥ 90 % health
     high_threshold = int(PADDLE_LEN * 0.9)
     if weakest >= high_threshold:
@@ -178,7 +178,7 @@ def update_hearts(dt_frames: float, dt_ms: int, balls: list, paddles: Dict[str, 
         if collected:
             # Heal weakest paddle (smallest width)
             if paddles:
-                weakest = min(paddles.values(), key=lambda p: p.width)
+                weakest = min(paddles.values(), key=lambda p: p.logical_width)
                 _heal_paddle(weakest)
             _active_hearts.remove(heart)
 
@@ -243,21 +243,23 @@ def _update_heal_sound_volume():
 
 
 def _heal_paddle(paddle):
-    """Restore paddle length by twice fireball damage (max = base length)."""
+    """Restore paddle length by twice fireball damage (max = base width)."""
     from config import WIDTH, HEIGHT  # late import to avoid cycles
-    # Target width: +40 % of *current* length capped at base PADDLE_LEN.
-    new_len = min(PADDLE_LEN, int(paddle.width * 1.4))
-    if new_len <= paddle.width:  # already at max – nothing to do
+    
+    # Calculate new actual width: +40% of current actual width, capped at base_width
+    new_actual_width = min(paddle.base_width, int(paddle.actual_width * 1.4))
+    if new_actual_width <= paddle.actual_width:  # already at max – nothing to do
         return
-    if paddle.side in ("top", "bottom"):
-        centre = paddle.rect.centerx
-        paddle.rect.width = new_len
-        paddle.rect.x = max(PADDLE_MARGIN, min(WIDTH - new_len - PADDLE_MARGIN, centre - new_len // 2))
-    else:
-        centre = paddle.rect.centery
-        paddle.rect.height = new_len
-        paddle.rect.y = max(PADDLE_MARGIN, min(HEIGHT - new_len - PADDLE_MARGIN, centre - new_len // 2))
-    paddle.width = new_len
+    
+    # Update actual width
+    paddle.actual_width = new_actual_width
+    
+    # If no widen potion is active, update logical width immediately
+    if paddle.widen_stack == 0:
+        paddle.logical_width = paddle.actual_width
+        paddle._start_width_animation(paddle.logical_width)
+    # If widen potion is active, logical width will be updated when potion expires
+    
     # Trigger visual pulse & sound on the healed paddle
     try:
         paddle.heal_pulse_timer = 60  # ~0.5 s at 120 FPS or 1 s at 60 FPS
