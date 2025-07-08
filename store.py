@@ -67,6 +67,9 @@ class Store:
         self.scroll_offset = 0
         self.tab_names = ["Restoration", "Upgrades", "Fortune", "Potions"]
         
+        # Track whether store was opened automatically (wave transition) or manually (pause menu)
+        self.opened_automatically = False
+        
         # Store state tracking
         self.wave_number = 1
         self.player_upgrades = {}  # id -> current_level or purchase_count
@@ -210,7 +213,7 @@ class Store:
         self.tab_names = ["Restoration", "Upgrades", "Fortune", "Potions"]
         return upgrades
 
-    def open_store(self, wave_number: int):
+    def open_store(self, wave_number: int, automatic: bool = False):
         """Open the store interface."""
         self.active = True
         self.wave_number = wave_number
@@ -218,10 +221,29 @@ class Store:
         self.scroll_offset = 0
         self.selected_item = 0
         self.hover_item = None
+        self.opened_automatically = automatic
 
     def close_store(self):
         """Close the store interface."""
         self.active = False
+        
+        # Return to appropriate menu based on how store was opened
+        try:
+            import sys
+            _main = sys.modules['__main__']
+            
+            if self.opened_automatically:
+                # Return to game (don't open pause menu)
+                pass
+            else:
+                # Return to pause menu during gameplay
+                if hasattr(_main, 'pause_menu'):
+                    _main.pause_menu.active = True
+        except Exception as e:
+            print("[Store] Failed to return to appropriate menu:", e)
+        
+        # Reset the flag
+        self.opened_automatically = False
 
     def handle_event(self, event: pygame.event.Event):
         """Handle store input events."""
@@ -274,7 +296,7 @@ class Store:
                         self.scroll_offset = 0
                         self.selected_item = 0
                 return True
-            elif event.key == pygame.K_SPACE:
+            elif event.key == pygame.K_SPACE or event.key == pygame.K_RETURN:
                 # Attempt to purchase selected item
                 current_upgrades = self.upgrades[self.tab_names[self.current_tab]]
                 start_index = self.scroll_offset * self.items_per_page

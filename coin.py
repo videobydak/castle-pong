@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 # Coin collectible – 8-bit pixel coins that provide currency for upgrades.
 # -----------------------------------------------------------------------------
 
-__all__ = ["maybe_spawn_coins", "update_coins", "draw_coins", "get_coin_count", "clear_coins", "update_coin_volumes"]
+__all__ = ["maybe_spawn_coins", "update_coins", "draw_coins", "get_coin_count", "clear_coins", "clear_active_coins", "update_coin_volumes"]
 
 # Active coin instances in the world
 _active_coins: List["_Coin"] = []
@@ -369,10 +369,15 @@ def reset_coin_count():
         _total_coins = 0
 
 
-def clear_coins():
-    """Clear all active coins (used for game reset). Also resets total coins."""
+def clear_active_coins():
+    """Clear all active coins from the screen without resetting total coin count."""
     global _active_coins
     _active_coins = []
+
+
+def clear_coins():
+    """Clear all active coins (used for game reset). Also resets total coins."""
+    clear_active_coins()
     reset_coin_count()
 
 

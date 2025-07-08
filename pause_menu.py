@@ -78,7 +78,7 @@ class PauseMenu:
                 # Close pause menu first
                 self.active = False
                 current_wave = getattr(_main, 'wave', 1)
-                _main.store.open_store(current_wave)
+                _main.store.open_store(current_wave, automatic=False)
         except Exception as e:
             print("[PauseMenu] Failed to open store:", e)
     def _exit(self):
@@ -87,6 +87,7 @@ class PauseMenu:
         import pygame
         try:
             _main = sys.modules['__main__']
+            # Close pause menu when returning to main menu
             self.active = False
             
             # Manual reset for returning to main menu (without triggering paddle intro)
@@ -175,6 +176,8 @@ class PauseMenu:
             if hasattr(_main, 'tutorial_overlay'):
                 from tutorial import TutorialOverlay
                 _main.tutorial_overlay = TutorialOverlay()
+                # Ensure tutorial overlay is active and pause menu is closed
+                _main.tutorial_overlay.active = True
             
             # Switch to menu music
             pygame.mixer.music.fadeout(400)
@@ -190,6 +193,9 @@ class PauseMenu:
             if hasattr(_main, 'store') and hasattr(_main, 'paddles') and hasattr(_main, 'player_wall') and hasattr(_main, 'castle'):
                 _main.store.set_game_state(_main.paddles, _main.player_wall, _main.castle)
             
+            # Ensure pause menu is completely closed
+            self.active = False
+            
         except Exception as e:
             print("[PauseMenu] Failed to return to main menu:", e)
             pygame.quit()
@@ -197,6 +203,15 @@ class PauseMenu:
 
     # ------------------------------------------------
     def toggle(self):
+        # Prevent pause menu from being activated when tutorial overlay (main menu) is active
+        try:
+            import sys
+            _main = sys.modules['__main__']
+            if hasattr(_main, 'tutorial_overlay') and _main.tutorial_overlay.active:
+                return  # Don't allow pause menu when main menu is active
+        except Exception as e:
+            print("[PauseMenu] Failed to check tutorial overlay state:", e)
+        
         # Toggle visibility and reset keyboard navigation state when opened
         self.active = not self.active
         if self.active:

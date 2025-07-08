@@ -55,27 +55,16 @@ def apply_upgrade_effects(store, paddles: Dict[str, Any], player_wall, castle, d
     apply_emergency_healing(store, paddles)
 
 def apply_passive_upgrades(store, paddles: Dict[str, Any], player_wall, castle):
-    """Apply permanent passive upgrade effects."""
+    """Apply passive upgrade effects that should be active continuously."""
     
-    # Giant's Grip - Paddle width upgrades
+    # Giant's Grip - Paddle width upgrades (handled in apply_tiered_upgrades when purchased)
+    # This section ensures the base_width is maintained every frame
     if store.has_upgrade('paddle_width'):
         level = store.get_upgrade_level('paddle_width')
         width_bonus = level * 30  # 30 pixels per level
         for paddle in paddles.values():
             # Update base_width to include store upgrades
             paddle.base_width = PADDLE_LEN + width_bonus
-            # Update actual_width if no widen potion is active
-            if paddle.widen_stack == 0:
-                paddle.actual_width = paddle.base_width
-                paddle.logical_width = paddle.actual_width
-                paddle._start_width_animation(paddle.logical_width)
-            else:
-                # If widen potion is active, only update actual_width
-                # The logical_width will be updated when potion expires
-                paddle.actual_width = paddle.base_width
-            # Mark that upgrade has been applied
-            if not hasattr(paddle, 'upgrade_width_applied'):
-                paddle.upgrade_width_applied = True
     
     # Wind Walker's Grace - Paddle agility (reduced inertia)
     if store.has_upgrade('paddle_agility'):
@@ -217,6 +206,23 @@ def apply_tiered_upgrades(store, upgrade_id: str, level: int, paddles: Dict[str,
         # Apply magnetism handled in passive upgrades; nothing to do here except maybe update strength immediately
         strength = 1.5 + (level - 1) * 1.0
         coin.set_magnetism_strength(strength)
+    
+    elif upgrade_id == 'paddle_width':
+        # Giant's Grip - Paddle width upgrades
+        width_bonus = level * 30  # 30 pixels per level
+        for paddle in paddles.values():
+            # Update base_width to include store upgrades
+            paddle.base_width = PADDLE_LEN + width_bonus
+            # Heal the paddle to the new base width when purchased
+            paddle.actual_width = paddle.base_width
+            # Update logical width if no widen potion is active
+            if paddle.widen_stack == 0:
+                paddle.logical_width = paddle.actual_width
+                paddle._start_width_animation(paddle.logical_width)
+            # If widen potion is active, logical width will be updated when potion expires
+            
+            # Trigger heal pulse visual effect
+            paddle.heal_pulse_timer = 30  # 30 frames of pulsing
 
 def update_temporary_effects(dt_ms: int, player_wall):
     """Update temporary upgrade effects and timers."""

@@ -148,8 +148,9 @@ while running:
                     # red ball damages the paddle but bounces away
                     if power_timers.get(side, [None,0])[0] != 'widen':
                         p.shrink()
-                    # Grow paddle on cannonball hit
-                    p.grow_on_hit()
+                    # Grow paddle if widen is active
+                    if power_timers.get(side, [None,0])[0] == 'widen':
+                        p.grow_on_hit()
                     if side in ('top','bottom'):
                         ball.vel.y *= -1
                         # Add horizontal component based on paddle motion
@@ -166,8 +167,9 @@ while running:
                     ball.pos += ball.vel * 0.1
                 else:
                     # white ball bounces back toward the castle
-                    # Grow paddle on cannonball hit
-                    p.grow_on_hit()
+                    # Grow paddle if widen is active
+                    if power_timers.get(side, [None,0])[0] == 'widen':
+                        p.grow_on_hit()
                     if side in ('top','bottom'):
                         ball.vel.y *= -1
                         ball.vel.x += p.vel * LINEAR_TRANSFER

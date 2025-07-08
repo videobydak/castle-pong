@@ -12,6 +12,9 @@ class OptionsMenu:
         self.bg = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
         self.bg.fill((0, 0, 0, 230))
         
+        # Track whether options was opened from main menu or during gameplay
+        self.opened_from_main_menu = False
+        
         # Font setup
         self.title_font = self._load_pixel_font(96)
         self.btn_font = self._load_pixel_font(32)
@@ -77,12 +80,12 @@ class OptionsMenu:
             'label_rect': pygame.Rect(WIDTH//2 - 200, music_y - 30, 400, 25)
         })
         
-        # Music Mute Toggle
+        # Music Toggle
         mute_music_y = music_y + 70
         self.options.append({
             'type': 'toggle',
             'key': 'music_muted',
-            'label': 'Mute Music',
+            'label': 'Music',
             'rect': pygame.Rect(WIDTH//2 - 100, mute_music_y, 200, 40),
             'label_rect': pygame.Rect(WIDTH//2 - 100, mute_music_y - 30, 200, 25)
         })
@@ -98,12 +101,12 @@ class OptionsMenu:
             'label_rect': pygame.Rect(WIDTH//2 - 200, sfx_y - 30, 400, 25)
         })
         
-        # SFX Mute Toggle
+        # SFX Toggle
         mute_sfx_y = sfx_y + 70
         self.options.append({
             'type': 'toggle',
             'key': 'sfx_muted',
-            'label': 'Mute SFX',
+            'label': 'SFX',
             'rect': pygame.Rect(WIDTH//2 - 100, mute_sfx_y, 200, 40),
             'label_rect': pygame.Rect(WIDTH//2 - 100, mute_sfx_y - 30, 200, 25)
         })
@@ -131,13 +134,13 @@ class OptionsMenu:
         # Back and Reset Buttons
         back_y = fps_y + 100
         self.back_button = {
-            'rect': pygame.Rect(WIDTH//2 - 160, back_y, 150, 50),
+            'rect': pygame.Rect(WIDTH//2 - 180, back_y, 170, 60),
             'label': 'Back',
             'hover': False
         }
         
         self.reset_button = {
-            'rect': pygame.Rect(WIDTH//2 + 10, back_y, 150, 50),
+            'rect': pygame.Rect(WIDTH//2 + 10, back_y, 200, 60),
             'label': 'Reset',
             'hover': False
         }
@@ -149,12 +152,40 @@ class OptionsMenu:
         self.dragging_slider = None
         # Apply settings to ensure all volumes are up to date
         self._apply_settings()
+        
+        # Check if tutorial overlay (main menu) is active
+        try:
+            import sys
+            _main = sys.modules['__main__']
+            self.opened_from_main_menu = hasattr(_main, 'tutorial_overlay') and _main.tutorial_overlay.active
+        except Exception as e:
+            print("[OptionsMenu] Failed to check tutorial overlay state:", e)
+            self.opened_from_main_menu = False
     
     def close_options(self):
         """Close the options menu and save settings."""
         self.active = False
         self._save_settings()
         self._apply_settings()
+        
+        # Return to appropriate menu based on where options was opened from
+        try:
+            import sys
+            _main = sys.modules['__main__']
+            
+            if self.opened_from_main_menu:
+                # Return to main menu (tutorial overlay)
+                if hasattr(_main, 'tutorial_overlay'):
+                    _main.tutorial_overlay.active = True
+            else:
+                # Return to pause menu during gameplay
+                if hasattr(_main, 'pause_menu'):
+                    _main.pause_menu.active = True
+        except Exception as e:
+            print("[OptionsMenu] Failed to return to appropriate menu:", e)
+        
+        # Reset the flag after using it
+        self.opened_from_main_menu = False
     
     def reset_to_defaults(self):
         """Reset all settings to their default values."""
@@ -299,7 +330,7 @@ class OptionsMenu:
         self._apply_settings()
     
     def _handle_left_arrow(self):
-        """Handle left arrow key - decrease slider values or toggle switches."""
+        """Handle left arrow key - decrease slider values, toggle switches, or navigate buttons."""
         if self.selected_option < len(self.options):
             option = self.options[self.selected_option]
             if option['type'] == 'slider':
@@ -312,9 +343,12 @@ class OptionsMenu:
                 # Toggle the switch
                 self.settings[option['key']] = not self.settings[option['key']]
                 self._apply_settings()
+        elif self.selected_option == len(self.options) + 1:  # Reset button selected
+            # Move to Back button
+            self.selected_option = len(self.options)
 
     def _handle_right_arrow(self):
-        """Handle right arrow key - increase slider values or toggle switches."""
+        """Handle right arrow key - increase slider values, toggle switches, or navigate buttons."""
         if self.selected_option < len(self.options):
             option = self.options[self.selected_option]
             if option['type'] == 'slider':
@@ -327,6 +361,9 @@ class OptionsMenu:
                 # Toggle the switch
                 self.settings[option['key']] = not self.settings[option['key']]
                 self._apply_settings()
+        elif self.selected_option == len(self.options):  # Back button selected
+            # Move to Reset button
+            self.selected_option = len(self.options) + 1
 
     def _activate_selected(self):
         """Activate the currently selected option with keyboard."""
@@ -369,79 +406,89 @@ class OptionsMenu:
         self._draw_reset_button(surface)
     
     def _draw_option(self, surface, option, selected):
-        """Draw a single option element."""
-        # Draw label
+        """Draw a single option element, centered on the screen."""
         label_color = YELLOW if selected else WHITE
+        # Center label
         label_surf = self._render_outline(option['label'], self.label_font, label_color, (0, 0, 0), 1)
-        surface.blit(label_surf, option['label_rect'])
-        
+        label_rect = label_surf.get_rect(center=(WIDTH // 2, option['label_rect'].centery))
+        surface.blit(label_surf, label_rect)
+
         if option['type'] == 'slider':
-            self._draw_slider(surface, option, selected)
+            # Center slider
+            slider_rect = option['slider_rect'].copy()
+            slider_rect.centerx = WIDTH // 2
+            self._draw_slider(surface, option, selected, slider_rect)
         elif option['type'] == 'toggle':
-            self._draw_toggle(surface, option, selected)
-    
-    def _draw_slider(self, surface, option, selected):
-        """Draw a volume slider."""
-        slider_rect = option['slider_rect']
+            # Center toggle
+            toggle_rect = option['rect'].copy()
+            toggle_rect.centerx = WIDTH // 2
+            self._draw_toggle(surface, option, selected, toggle_rect)
+
+    def _draw_slider(self, surface, option, selected, slider_rect=None):
+        """Draw a volume slider, centered if slider_rect is provided."""
+        if slider_rect is None:
+            slider_rect = option['slider_rect']
         value = self.settings[option['key']]
-        
-        # Draw slider track
         track_color = YELLOW if selected else (100, 100, 100)
         pygame.draw.rect(surface, track_color, slider_rect, 2)
-        
-        # Draw slider fill
         fill_width = int(slider_rect.width * value)
         fill_rect = pygame.Rect(slider_rect.left, slider_rect.top, fill_width, slider_rect.height)
         fill_color = YELLOW if selected else (150, 150, 150)
         pygame.draw.rect(surface, fill_color, fill_rect)
-        
-        # Draw slider handle
         handle_x = slider_rect.left + fill_width
         handle_rect = pygame.Rect(handle_x - 5, slider_rect.top - 3, 10, slider_rect.height + 6)
         handle_color = YELLOW if selected else WHITE
         pygame.draw.rect(surface, handle_color, handle_rect)
         pygame.draw.rect(surface, (0, 0, 0), handle_rect, 2)
-        
-        # Draw percentage
         percent_text = f"{int(value * 100)}%"
         percent_surf = self.btn_font.render(percent_text, True, WHITE)
-        percent_rect = percent_surf.get_rect(center=(slider_rect.right + 40, slider_rect.centery))
+        percent_rect = percent_surf.get_rect(midleft=(slider_rect.right + 10, slider_rect.centery))
         surface.blit(percent_surf, percent_rect)
-    
-    def _draw_toggle(self, surface, option, selected):
-        """Draw a toggle button as two separate ON/OFF buttons."""
-        toggle_rect = option['rect']
+
+    def _draw_toggle(self, surface, option, selected, toggle_rect=None):
+        """Draw a toggle button as two separate ON/OFF buttons, centered if toggle_rect is provided."""
+        if toggle_rect is None:
+            toggle_rect = option['rect']
         value = self.settings[option['key']]
-        
-        # Split the rect into two halves for ON and OFF
         button_width = toggle_rect.width // 2
         on_rect = pygame.Rect(toggle_rect.left, toggle_rect.top, button_width, toggle_rect.height)
         off_rect = pygame.Rect(toggle_rect.left + button_width, toggle_rect.top, button_width, toggle_rect.height)
-
         GREY_BG = (60, 60, 60)
         LIGHT_GREY_TEXT = (220, 220, 220)
         YELLOW_BG = YELLOW
         BLACK_TEXT = (0, 0, 0)
-
-        # Corrected: When value is True, ON is yellow; when value is False, OFF is yellow
-        if value:
-            on_bg_color = YELLOW_BG
-            on_text_color = BLACK_TEXT
-            off_bg_color = GREY_BG
-            off_text_color = LIGHT_GREY_TEXT
+        # Determine logic inversion by key
+        inverted_keys = {'music_muted', 'sfx_muted'}
+        if option['key'] in inverted_keys:
+            # Inverted logic: True (muted) = OFF yellow, False = ON yellow
+            if value:
+                on_bg_color = GREY_BG
+                on_text_color = LIGHT_GREY_TEXT
+                off_bg_color = YELLOW_BG
+                off_text_color = BLACK_TEXT
+            else:
+                on_bg_color = YELLOW_BG
+                on_text_color = BLACK_TEXT
+                off_bg_color = GREY_BG
+                off_text_color = LIGHT_GREY_TEXT
         else:
-            on_bg_color = GREY_BG
-            on_text_color = LIGHT_GREY_TEXT
-            off_bg_color = YELLOW_BG
-            off_text_color = BLACK_TEXT
-
+            # Normal logic: True = ON yellow, False = OFF yellow
+            if value:
+                on_bg_color = YELLOW_BG
+                on_text_color = BLACK_TEXT
+                off_bg_color = GREY_BG
+                off_text_color = LIGHT_GREY_TEXT
+            else:
+                on_bg_color = GREY_BG
+                on_text_color = LIGHT_GREY_TEXT
+                off_bg_color = YELLOW_BG
+                off_text_color = BLACK_TEXT
         # Draw ON button
         pygame.draw.rect(surface, on_bg_color, on_rect)
         pygame.draw.rect(surface, (0, 0, 0), on_rect, 2)
         on_text_surf = self._render_outline("ON", self.btn_font, on_text_color, (0, 0, 0), 1)
         on_text_rect = on_text_surf.get_rect(center=on_rect.center)
         surface.blit(on_text_surf, on_text_rect)
-
         # Draw OFF button
         pygame.draw.rect(surface, off_bg_color, off_rect)
         pygame.draw.rect(surface, (0, 0, 0), off_rect, 2)

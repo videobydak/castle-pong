@@ -107,7 +107,7 @@ class TutorialOverlay:
                 elif e.key == pygame.K_DOWN:
                     self.selected_index = (self.selected_index + 1) % len(self.buttons)
                     key_nav = True
-                elif e.key == pygame.K_SPACE:
+                elif e.key == pygame.K_SPACE or e.key == pygame.K_RETURN:
                     self.buttons[self.selected_index]["callback"]()
                     key_nav = True
         
