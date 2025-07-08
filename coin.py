@@ -361,7 +361,12 @@ def set_magnetism_strength(strength: float):
 def reset_coin_count():
     """Reset the player's total coin count to zero (used for new game)."""
     global _total_coins
-    _total_coins = 0
+    from config import DEBUG, DEBUG_STARTING_COINS
+    if DEBUG and DEBUG_STARTING_COINS > 0:
+        _total_coins = DEBUG_STARTING_COINS
+        print(f"[DEBUG] Starting with {DEBUG_STARTING_COINS} coins")
+    else:
+        _total_coins = 0
 
 
 def clear_coins():
