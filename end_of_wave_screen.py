@@ -180,6 +180,9 @@ class EndOfWaveScreen:
                         sound.set_volume(0)
                     else:
                         sfx_vol = options_menu.settings.get('sfx_volume', 0.75)
+                        # Reduce volume for scoring sounds to 25% of the selected SFX level
+                        if sound_name in ('eos_scoring_normal', 'eos_scoring_high'):
+                            sfx_vol *= 0.25
                         sound.set_volume(sfx_vol)
         except:
             pass
@@ -291,6 +294,10 @@ class EndOfWaveScreen:
         
         self.animated_values['total_coins']['target'] = self.total_coins
         self.animated_values['total_coins']['speed'] = self._calculate_animation_speed(self.total_coins)
+        
+        # Boost counting speed (excluding bonus multipliers) by 40%
+        for fast_key in ['score', 'total_score', 'coins_collected', 'total_coins']:
+            self.animated_values[fast_key]['speed'] *= 1.4
         
         # Reset animation state
         for key in self.animated_values:
