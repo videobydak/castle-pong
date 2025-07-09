@@ -19,6 +19,7 @@ from store import get_store
 from upgrade_effects import apply_upgrade_effects, reset_upgrade_states, get_time_scale, get_unlocked_potions
 from pause_menu import PauseMenu  # <--- new import for in-game pause menu
 from options_menu import OptionsMenu  # <--- new import for options menu
+from end_of_wave_screen import EndOfWaveScreen  # <--- new import for end of wave screen
 import time
 
 # --- helper ---
@@ -290,7 +291,7 @@ castle_dim_y  = 5               # starting footprint height (blocks)
 # --- Wave transition state ---
 wave_transition = {
     'active': False,
-    'state': 'idle',      # idle → approach → pre_store_delay → fade_to_store → store_fade_in → focus → store_fade_out → resume_fade_in → resume
+    'state': 'idle',      # idle → approach → pre_store_delay → end_of_wave_screen → fade_to_store → store_fade_in → focus → store_fade_out → resume_fade_in → resume
     'timer': 0,
     'block_pos': None,
     # --- tunables ---
@@ -309,6 +310,7 @@ wave_transition = {
     'no_close': 0,       # ms accumulated with no nearby balls
     'fade_alpha': 0,     # for fade transitions
     'store_opened': False,  # Track if store has been opened for this transition
+    'eos_shown': False,  # Track if End of Wave Screen has been shown
 }
 
 def get_wave_difficulty(wave):
@@ -384,6 +386,8 @@ pause_menu = PauseMenu()
 options_menu = OptionsMenu()
 # Apply saved settings on startup
 options_menu._apply_settings()
+# End of Wave Screen overlay
+end_of_wave_screen = EndOfWaveScreen()
 # Store interface
 store = get_store()
 # Set game state references for upgrade effects
@@ -416,6 +420,10 @@ shoot_enable_time = 0
 wave_font      = pygame.font.SysFont(None, 72, italic=True)
 wave_text      = ""
 wave_text_time = 0  # ms remaining
+
+# --- Wave timing tracking (for End of Wave Screen) -------------------
+wave_start_time = 0  # ms when current wave started
+wave_start_coins = 0  # coins at wave start (for coins collected calculation)
 
 # --- Paddle unlock animation -------------------------------------------
 intro_font = pygame.font.SysFont(None, 48, italic=True)
@@ -474,6 +482,12 @@ try:
     sounds['game_over_slide'] = _load_sound('Sound Response - 8 Bit Retro - Slide Down Game Over')
     # Add castle build whoosh sound
     sounds['castle_build_whoosh'] = _load_sound('Alberto Sueri - 8 Bit Fun - Quick Whoosh Gritty ')
+    # End of Wave Screen sound effects
+    sounds['eos_new_ui_item'] = _load_sound('EOS - New UI Item')
+    sounds['eos_scoring_normal'] = _load_sound('EOS - Scoring Normal')
+    sounds['eos_scoring_high'] = _load_sound('EOS - Scoring High')
+    sounds['eos_no_bonus'] = _load_sound('EOS - No Bonus')
+    sounds['eos_yes_bonus'] = _load_sound('EOS - Yes Bonus')
 
     # Volumes will be set after options menu is initialized
 
@@ -518,6 +532,10 @@ def return_to_main_menu(show_menu=True):
     balls       = []
     particles   = []
     score       = 0
+    
+    # Reset wave timing ---------------------------------------------------
+    wave_start_time = 0
+    wave_start_coins = 0
 
     # Collectibles / upgrades -------------------------------------------
     clear_coins()
@@ -558,7 +576,11 @@ def return_to_main_menu(show_menu=True):
         'next_castle': None,
         'next_music': None,
         'store_opened': False,
+        'eos_shown': False,
     })
+    
+    # Reset End of Wave Screen -----------------------------------------
+    end_of_wave_screen.hide()
 
     # Background & UI ----------------------------------------------------
     BACKGROUND = generate_grass(WIDTH, HEIGHT)
@@ -823,7 +845,7 @@ while running:
                 castle_building = False
         # Continue with normal game loop (castle.update) unless any menu is active
         if (not intro_active and not pause_menu.active and not store.active and
-            not options_menu.active and not tutorial_overlay.active):
+            not options_menu.active and not tutorial_overlay.active and not end_of_wave_screen.active):
             # Run castle logic only when gameplay is fully active. This prevents
             # cannons from charging or shooting while the game is paused,
             # in the store, in the options menu, or in the main menu.
@@ -908,8 +930,16 @@ while running:
             store_consumed_events = True
             break  # store consumed the event
     
-    # Only feed events to other menus if options menu didn't consume them
-    if not options_consumed_events and not store_consumed_events:
+    # feed events to End of Wave Screen
+    eos_consumed_events = False
+    if end_of_wave_screen.active:
+        for event in events:
+            if end_of_wave_screen.handle_event(event):
+                eos_consumed_events = True
+                break
+    
+    # Only feed events to other menus if options menu and End of Wave Screen didn't consume them
+    if not options_consumed_events and not store_consumed_events and not eos_consumed_events:
         # feed events to pause menu
         pause_consumed_events = pause_menu.update(events)
         
@@ -945,13 +975,23 @@ while running:
             # Reset to menu state on failure
             tutorial_overlay.loading = False
     
+    # Check if tutorial overlay just became inactive (wave starting)
+    if prev_tut_active and not tutorial_overlay.active:
+        wave_start_time = now
+        wave_start_coins = get_coin_count()
+    
+    # Ensure wave_start_time is set for the first wave if it hasn't been set yet
+    if wave_start_time == 0 and wave == 1 and not tutorial_overlay.active:
+        wave_start_time = now
+        wave_start_coins = get_coin_count()
+        
     tutorial_overlay._prev_active = tutorial_overlay.active
     tutorial_overlay._prev_loading = tutorial_overlay.loading
 
     # -----------------------------------------------------
     #  Recalculate paused state now that overlays processed
     # -----------------------------------------------------
-    paused = intro_active or tutorial_overlay.active or pause_menu.active or options_menu.active or store.active
+    paused = intro_active or tutorial_overlay.active or pause_menu.active or options_menu.active or store.active or end_of_wave_screen.active
     
     # Handle pause state changes for power timers - extend expiry times when unpausing
     if 'prev_paused' not in globals():
@@ -1006,6 +1046,10 @@ while running:
     
     # ---------------- Hearts update ----------------
     update_hearts(dt, ms_game, balls, paddles)
+    
+    # ---------------- End of Wave Screen update ----------------
+    if end_of_wave_screen.active:
+        end_of_wave_screen.update(ms)
     
     # ---------------- Store update ----------------
     store.update(ms)
@@ -1893,16 +1937,15 @@ while running:
         thickness = 4
         pygame.draw.rect(screen, border_col, (0,0,WIDTH,HEIGHT), thickness)
 
+    # Draw overlays when wave transition is not active
     if not wave_transition['active']:
-        # Draw tutorial overlay last so it sits atop the scene
         tutorial_overlay.draw(screen)
-        # Draw pause menu on top of everything else
         pause_menu.draw(screen)
-        # Draw options menu on top of everything else
         options_menu.draw(screen)
-        # Draw store on top of everything else
         store.draw(screen)
-        pygame.display.flip()
+    
+    # Single display flip to prevent flickering
+    pygame.display.flip()
 
     # ---------------------------------------------------------
     # TRANSITION STATE CHANGES
@@ -1946,10 +1989,41 @@ while running:
             'timer': 0,
         })
 
-    # 3) Wait in slow-mo for a moment before fade
+    # 3) Wait in slow-mo for a moment before showing End of Wave Screen
     if wave_transition['state'] == 'pre_store_delay':
         if wave_transition['timer'] >= wave_transition['duration_pre_store_delay']:
-            wave_transition.update({'state': 'fade_to_store', 'timer': 0})
+            wave_transition.update({'state': 'end_of_wave_screen', 'timer': 0, 'eos_shown': False, 'fade_alpha': 0})
+    
+    # 3.5) Show End of Wave Screen
+    if wave_transition['state'] == 'end_of_wave_screen':
+        if not wave_transition.get('eos_shown', False):
+            # Show the End of Wave Screen
+            # Safety check: ensure wave_start_time is valid
+            if wave_start_time == 0:
+                wave_start_time = now - 30000  # 30 seconds ago as fallback
+            
+            wave_completion_time = now - wave_start_time
+            # Safety check: ensure reasonable completion time
+            if wave_completion_time < 0:
+                wave_completion_time = 30000  # 30 seconds default
+            elif wave_completion_time > 300000:  # 5 minutes max
+                wave_completion_time = 300000
+            
+            end_of_wave_screen.show(score, wave_completion_time, wave_start_coins)
+            wave_transition['eos_shown'] = True
+        
+        # Check if End of Wave Screen is complete
+        if end_of_wave_screen.is_complete():
+            selected_action = end_of_wave_screen.get_selected_action()
+            # Hide the End of Wave Screen immediately to resume game
+            end_of_wave_screen.hide()
+            
+            if selected_action == 'continue':
+                # Skip store and go directly to next wave
+                wave_transition.update({'state': 'store_fade_out', 'timer': 0, 'fade_alpha': 0})
+            else:  # 'shop'
+                # Go to store as normal
+                wave_transition.update({'state': 'fade_to_store', 'timer': 0})
 
     # 4) Fade to black before store
     if wave_transition['state'] == 'fade_to_store':
@@ -2017,6 +2091,9 @@ while running:
             power_timers.clear()
             wave_text = f"WAVE {wave}!"
             wave_text_time = 3000
+            # Initialize wave timing for the new wave
+            wave_start_time = now
+            wave_start_coins = get_coin_count()
             if wave_transition.get('next_music'):
                 try:
                     pygame.mixer.music.load(wave_transition['next_music'])
@@ -2116,6 +2193,9 @@ while running:
         balls        = []
         score        = 0
         particles    = []
+        # Reset wave timing
+        wave_start_time = 0
+        wave_start_coins = 0
         # Reset coin and store state
         clear_coins()
         clear_hearts()
@@ -2231,6 +2311,10 @@ while running:
             options_menu.draw(screen)
             store.draw(screen)
 
+        # Draw End of Wave Screen on top of everything during transitions
+        if end_of_wave_screen.active:
+            end_of_wave_screen.draw(screen)
+
         pygame.display.flip()
 
     # After tutorial overlay is dismissed, start first castle build if not already started
@@ -2261,6 +2345,10 @@ while running:
             fade_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
             fade_surf.fill((0, 0, 0, fade_alpha))
             screen.blit(fade_surf, (0, 0))
+    
+    # Draw End of Wave Screen on top of everything, including fade overlays (when not in transition)
+    if end_of_wave_screen.active and wave_transition['state'] in ('idle', 'end_of_wave_screen'):
+        end_of_wave_screen.draw(screen)
 
     # Draw paddle tooltips (after paddles are drawn)
     for tooltip in paddle_tooltips[:]:
