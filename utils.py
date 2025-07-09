@@ -1,6 +1,7 @@
 # Utility helpers and simple particle/texture generators for the 8-bit look
 
-import pygame, random, math
+import pygame, random, math, sys, os
+from pathlib import Path
 from config import SCALE, BLOCK_COLOR_L1, BLOCK_COLOR_L2, BLOCK_COLOR_L3, BLOCK_COLOR_DEFAULT, BLOCK_COLOR_WALKWAY, BLOCK_COLOR_GARDEN
 
 # Generate a background grass texture once
@@ -181,3 +182,98 @@ def make_wood(size=8, base_col=(176, 96, 32)):
         xk, yk = random.randint(0, size - 1), random.randint(0, size - 1)
         surf.set_at((xk, yk), col_variants[3])
     return surf 
+
+# -----------------------------------------------------------------------------
+#  Cross-platform asset helper & automatic pygame monkey-patches
+# -----------------------------------------------------------------------------
+
+
+def resource_path(relative: str) -> str:
+    """Return an absolute path to *relative* that works both from source and
+    when the program is bundled (PyInstaller/py2app).
+
+    Example::
+
+        surf = pygame.image.load(resource_path("gfx/sprite.png"))
+
+    """
+    base_path = getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)
+    return str(Path(base_path) / relative)
+
+
+# Monkey-patch pygame so existing ``pygame.mixer.Sound("foo.wav")`` and
+# ``pygame.font.Font("PressStart2P-Regular.ttf", size)`` calls keep working even
+# after the game is frozen into a single executable.  If the original relative
+# path fails, we retry through ``resource_path``.
+
+
+def _patch_pygame_loaders():
+    if getattr(pygame, "_castle_pong_asset_patch", False):  # already patched
+        return
+
+    pygame._castle_pong_asset_patch = True
+
+    # --- Sound objects -------------------------------------------------------
+    _orig_sound = pygame.mixer.Sound
+
+    def _sound_wrapper(*args, **kwargs):
+        """Wrapper that redirects relative file paths through resource_path.
+
+        pygame allows several ways to create a Sound:
+            Sound("path.wav")
+            Sound(file="path.wav")
+            Sound(buffer=b"…")
+            Sound(array=my_ndarray)
+
+        Our patch should only touch cases that supply a *file* path and leave
+        buffer/array constructions untouched.  Additionally, some callers (e.g.
+        pygame.sndarray.make_sound) create sounds via the *array* keyword and
+        **do not** pass the positional *file* parameter.  The old wrapper
+        expected the positional argument and therefore broke with a
+        TypeError.  This new implementation handles all variants safely.
+        """
+
+        # Determine if a file path was provided either positionally or via the
+        # keyword argument.  If so, rewrite it when it is a relative path that
+        # cannot be found on disk (important for PyInstaller builds).
+        if args:
+            file_arg = args[0]
+            if isinstance(file_arg, str) and not os.path.isabs(file_arg) and not os.path.exists(file_arg):
+                args = (resource_path(file_arg),) + args[1:]
+        elif 'file' in kwargs and isinstance(kwargs['file'], str):
+            f = kwargs['file']
+            if not os.path.isabs(f) and not os.path.exists(f):
+                kwargs['file'] = resource_path(f)
+
+        # All other creation modes (buffer=, array=) are forwarded verbatim.
+        return _orig_sound(*args, **kwargs)
+
+    pygame.mixer.Sound = _sound_wrapper
+
+    # --- Music loader --------------------------------------------------------
+    _orig_music_load = pygame.mixer.music.load
+
+    def _music_load_wrapper(file, *args, **kwargs):
+        if isinstance(file, str) and not os.path.isabs(file) and not os.path.exists(file):
+            file = resource_path(file)
+        return _orig_music_load(file, *args, **kwargs)
+
+    pygame.mixer.music.load = _music_load_wrapper
+
+    # --- Font loader ---------------------------------------------------------
+    _orig_font = pygame.font.Font
+
+    def _font_wrapper(file, size, *args, **kwargs):
+        if file and isinstance(file, str) and not os.path.isabs(file) and not os.path.exists(file):
+            file = resource_path(file)
+        return _orig_font(file, size, *args, **kwargs)
+
+    pygame.font.Font = _font_wrapper
+
+
+# Apply patches immediately on import so the rest of the game benefits.
+_patch_pygame_loaders()
+
+# -----------------------------------------------------------------------------
+#  End of utils additions
+# ----------------------------------------------------------------------------- 
