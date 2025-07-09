@@ -160,6 +160,8 @@ def paddle_ball_collision_2d(ball, paddle):
 pygame.init()
 pygame.mixer.init()
 MUSIC_PATH = "Untitled.mp3"  # background soundtrack in project root
+# Custom event posted when current music track finishes
+MUSIC_END_EVENT = pygame.USEREVENT + 8
 try:
     pygame.mixer.music.load(MUSIC_PATH)
     # Volume will be set after options menu is initialized
@@ -255,18 +257,21 @@ def start_random_wave_music():
         else:
             pygame.mixer.music.set_volume(music_volume)
         pygame.mixer.music.play(0)  # Play once without looping
+        # Set timer based on hard-coded duration
+        global music_end_time
+        music_end_time = pygame.time.get_ticks() + TRACK_DURATIONS.get(chosen_music, 180000)
         print(f"[Audio] Started wave music: {chosen_music}")
         return True
     except Exception as e:
         print(f"[Audio] Failed to load wave music: {e}")
         return False
 
-# --- Scan for available wave music files (Untitled3.mp3 to Untitled10.mp3) ---
-WAVE_MUSIC_FILES = []
-for i in range(3, 11):
-    fname = f"Untitled{i}.mp3"
-    if os.path.isfile(fname):
-        WAVE_MUSIC_FILES.append(fname)
+# --- Background wave music files ---
+# Pull filenames directly from BACKGROUND_MUSIC_TRACKS in config.py. Only keep
+# tracks that actually exist on disk to avoid loading errors.
+WAVE_MUSIC_FILES = [f for (f, _d) in BACKGROUND_MUSIC_TRACKS if os.path.isfile(f)]
+# Map filename -> hard-coded duration (ms) for timer-based track switching
+TRACK_DURATIONS = {f: dur for (f, dur) in BACKGROUND_MUSIC_TRACKS}
 
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 clock  = pygame.time.Clock()
@@ -979,7 +984,10 @@ while running:
     if prev_tut_active and not tutorial_overlay.active:
         wave_start_time = now
         wave_start_coins = get_coin_count()
-    
+        # Start wave music if we have tracks available
+        if wave == 1 and WAVE_MUSIC_FILES:
+            start_random_wave_music()
+
     # Ensure wave_start_time is set for the first wave if it hasn't been set yet
     if wave_start_time == 0 and wave == 1 and not tutorial_overlay.active:
         wave_start_time = now
@@ -1334,66 +1342,101 @@ while running:
                                     for _ in range(3):
                                         vel = pygame.Vector2(random.uniform(-1,1), random.uniform(-1,1))
                                         particles.append(Particle(ex, ey, vel, debris_color, life=20))
-                    # Grow paddle if widen is active
-                    if power_timers.get(side, [None,0])[0] == 'widen':
-                        p.grow_on_hit()
-                    # Reflect off paddle rectangle then add spin & curved redirection
-                    curved_paddle_reflect(ball, p)
-                    # Apply 2D collision physics
-                    paddle_ball_collision_2d(ball, p)
-                    # Play paddle hit sound (for red fireball)
-                    if 'paddle_hit' in sounds:
-                        sounds['paddle_hit'].play()
-                    p.offset += impact_dir * 4
+                        # Grow paddle if widen is active
+                        if power_timers.get(side, [None,0])[0] == 'widen':
+                            p.grow_on_hit()
+                        # Reflect off paddle rectangle then add spin & curved redirection
+                        curved_paddle_reflect(ball, p)
+                        # Apply 2D collision physics
+                        paddle_ball_collision_2d(ball, p)
+                        # Play paddle hit sound (for red fireball)
+                        if 'paddle_hit' in sounds:
+                            sounds['paddle_hit'].play()
+                        p.offset += impact_dir * 4
 
-                    # Cap speed
-                    speed = ball.vel.length()
-                    if speed > BALL_SPEED:
-                        ball.vel = ball.vel.normalize() * BALL_SPEED
+                        # Cap speed
+                        speed = ball.vel.length()
+                        if speed > BALL_SPEED:
+                            ball.vel = ball.vel.normalize() * BALL_SPEED
 
-                    # Slight nudge to avoid instant re-collision
-                    ball.pos += ball.vel * 0.1
+                        # Slight nudge to avoid instant re-collision
+                        ball.pos += ball.vel * 0.1
 
-                    # If paddle has pierce power, convert this ball
-                    if power_timers.get(side, [None,0])[0] == 'pierce':
-                        ball.pierce = True
-                        ball.color = (170,0,255)
+                        # If paddle has pierce power, convert this ball
+                        if power_timers.get(side, [None,0])[0] == 'pierce':
+                            ball.pierce = True
+                            ball.color = (170,0,255)
 
-                    # Check for shatter due to low speed
-                    if ball.vel.length() <= BALL_SHATTER_SPEED:
-                        balls.remove(ball)
-                        if ball.color == RED:
-                            # Enhanced explosion: more particles, plus dirt streaks
-                            for _ in range(75):
-                                ang = random.uniform(0, 360)
-                                spd = random.uniform(2, 5)
-                                vel = pygame.Vector2(spd, 0).rotate(ang)
-                                color = random.choice([(255,0,0),(255,80,0),(255,120,0),(255,160,0),(255,200,0)])
-                                particles.append(Particle(ball.pos.x,ball.pos.y,vel,color,30))
-                            # Dirt-streak debris in direction of travel
-                            dir_vec = ball.pos - ball.prev
-                            if dir_vec.length_squared() == 0:
-                                dir_vec = pygame.Vector2(0, -1)
-                            else:
-                                dir_vec = dir_vec.normalize()
-                            # DEBRIS FIX: Don't create debris during paddle intro animations
-                            if not intro_active:
-                                for _ in range(25):
-                                    angle_var = random.uniform(-30, 30)
-                                    speed = random.uniform(3, 7) * SCALE
-                                    vel = dir_vec.rotate(angle_var) * speed
-                                    brown = random.choice([(101, 67, 33), (120, 80, 40), (140, 90, 50)])
-                                    size = int(random.randint(2, 4) * SCALE)
-                                    deb = {
-                                        'pos': ball.pos.copy(),
-                                        'vel': vel,
-                                        'color': brown,
-                                        'size': size,
-                                        'friction': random.uniform(0.94, 0.985),
-                                        'dig_frames': random.randint(int(15 * SCALE), int(90 * SCALE))
-                                    }
-                                    castle.debris.append(deb)
-                            break
+                        # Check for shatter due to low speed
+                        if ball.vel.length() <= BALL_SHATTER_SPEED:
+                            balls.remove(ball)
+                            if ball.color == RED:
+                                # Enhanced explosion: more particles, plus dirt streaks
+                                for _ in range(75):
+                                    ang = random.uniform(0, 360)
+                                    spd = random.uniform(2, 5)
+                                    vel = pygame.Vector2(spd, 0).rotate(ang)
+                                    color = random.choice([(255,0,0),(255,80,0),(255,120,0),(255,160,0),(255,200,0)])
+                                    particles.append(Particle(ball.pos.x,ball.pos.y,vel,color,30))
+                                # Dirt-streak debris in direction of travel
+                                dir_vec = ball.pos - ball.prev
+                                if dir_vec.length_squared() == 0:
+                                    dir_vec = pygame.Vector2(0, -1)
+                                else:
+                                    dir_vec = dir_vec.normalize()
+                                # DEBRIS FIX: Don't create debris during paddle intro animations
+                                if not intro_active:
+                                    for _ in range(25):
+                                        angle_var = random.uniform(-30, 30)
+                                        speed = random.uniform(3, 7) * SCALE
+                                        vel = dir_vec.rotate(angle_var) * speed
+                                        brown = random.choice([(101, 67, 33), (120, 80, 40), (140, 90, 50)])
+                                        size = int(random.randint(2, 4) * SCALE)
+                                        deb = {
+                                            'pos': ball.pos.copy(),
+                                            'vel': vel,
+                                            'color': brown,
+                                            'size': size,
+                                            'friction': random.uniform(0.94, 0.985),
+                                            'dig_frames': random.randint(int(15 * SCALE), int(90 * SCALE))
+                                        }
+                                        castle.debris.append(deb)
+                                break
+                        else:
+                            # Grow paddle if widen is active
+                            if power_timers.get(side, [None,0])[0] == 'widen':
+                                p.grow_on_hit()
+                            # white ball bounce with reflect, spin and curved redirection
+                            curved_paddle_reflect(ball, p)
+                            # Apply 2D collision physics
+                            paddle_ball_collision_2d(ball, p)
+                            # Play paddle hit sound (for white cannonball, not potions)
+                            if 'paddle_hit' in sounds and not ball.is_power:
+                                sounds['paddle_hit'].play()
+                            p.offset += impact_dir * 4
+
+                            ball.pos += ball.vel * 0.1
+
+                            # if paddle has through power, convert ball
+                            if power_timers.get(side, [None,0])[0] == 'through':
+                                # Randomize into potion or fireball
+                                if random.random() < 0.35:
+                                    # Turn into a red fireball
+                                    ball.is_power = False
+                                    ball.color = RED
+                                else:
+                                    from upgrade_effects import get_unlocked_potions
+                                    available = get_unlocked_potions()
+                                    if not available:
+                                        continue  # no potions unlocked yet
+                                    ball.is_power = True
+                                    ball.power_type = random.choice(available)
+                                    ball.color = YELLOW
+                            elif power_timers.get(side, [None,0])[0] == 'pierce':
+                                ball.pierce = True
+                                ball.color = (170,0,255)
+                            # (Removed friendly-fire guard – cannonballs always damage player castle)
+                        break
                 else:
                     # Grow paddle if widen is active
                     if power_timers.get(side, [None,0])[0] == 'widen':
@@ -1712,11 +1755,14 @@ while running:
         part.draw(scene_surf)
 
     # Draw paddle tooltips (after paddles are drawn, before blit to screen)
-    for tooltip in paddle_tooltips[:]:
-        tooltip.update(events)
-        tooltip.draw(scene_surf)
-        if tooltip.done:
-            paddle_tooltips.remove(tooltip)
+    # Tooltips should pause while the End-of-Wave screen is active to avoid
+    # flickering on top of it.
+    if not end_of_wave_screen.active:
+        for tooltip in paddle_tooltips[:]:
+            tooltip.update(events)
+            tooltip.draw(scene_surf)
+            if tooltip.done:
+                paddle_tooltips.remove(tooltip)
 
     # Draw hearts after castle so they appear on top of walls but under HUD
     draw_hearts(scene_surf)
@@ -2104,7 +2150,8 @@ while running:
                     else:
                         pygame.mixer.music.set_volume(music_volume)
                     pygame.mixer.music.play(0)  # Play once without looping
-                    current_playing_song = wave_transition['next_music']  # Track what we're now playing
+                    # Timer-based track switching
+                    music_end_time = pygame.time.get_ticks() + TRACK_DURATIONS.get(wave_transition['next_music'], 180000)
                     print(f"[Audio] Started wave music: {wave_transition['next_music']}")
                 except Exception as e:
                     print(f"[Audio] Failed to load wave music: {e}")
@@ -2139,19 +2186,19 @@ while running:
         tutorial_looping = False
         _tut_pause_until = 0
     else:
-        # --- Simple playlist system: if music ends, play next song ---
-        if wave >= 2 and WAVE_MUSIC_FILES and not pygame.mixer.music.get_busy():
+        # --- Simple playlist system using hard-coded track durations ---
+        if wave >= 2 and WAVE_MUSIC_FILES and music_end_time and pygame.time.get_ticks() >= music_end_time:
             next_song = get_next_wave_music()
             try:
                 pygame.mixer.music.load(next_song)
-                # Use current music volume from options
                 music_volume = options_menu.get_setting('music_volume', 0.75)
                 if options_menu.get_setting('music_muted', False):
                     pygame.mixer.music.set_volume(0)
                 else:
                     pygame.mixer.music.set_volume(music_volume)
-                pygame.mixer.music.play(0)  # Play once without looping
-                print(f"[Audio] Playing next song: {next_song}")
+                pygame.mixer.music.play(0)
+                music_end_time = pygame.time.get_ticks() + TRACK_DURATIONS.get(next_song, 180000)
+                print(f"[Audio] Playing next song by timer: {next_song}")
             except Exception as e:
                 print(f"[Audio] Failed to load next song: {e}")
     # --------------------------------------------------------------------
@@ -2261,7 +2308,11 @@ while running:
     else:
         # --- Zoom-in/out effect based on transition state ---
         st = wave_transition['state']
-        if st == 'approach':
+        # For end_of_wave_screen, skip zooming logic entirely to maintain
+        # a stable backdrop and eliminate front/back flicker.
+        if st == 'end_of_wave_screen':
+            zoom = 1.0
+        elif st == 'approach':
             closeness = wave_transition.get('closeness', 0.0)
             zoom = 1.0 + (wave_transition['zoom_target'] - 1.0) * closeness
         elif st == 'focus':
@@ -2290,9 +2341,13 @@ while running:
         bx, by = wave_transition['block_pos']
         # Calculate blit rect
         surf_w, surf_h = scene_surf.get_size()
-        zoomed_w = int(surf_w * zoom)
-        zoomed_h = int(surf_h * zoom)
-        zoomed_surf = pygame.transform.smoothscale(scene_surf, (zoomed_w, zoomed_h))
+        if zoom == 1.0:
+            zoomed_surf = scene_surf
+            zoomed_w, zoomed_h = surf_w, surf_h
+        else:
+            zoomed_w = int(surf_w * zoom)
+            zoomed_h = int(surf_h * zoom)
+            zoomed_surf = pygame.transform.smoothscale(scene_surf, (zoomed_w, zoomed_h))
 
         # Desired top-left offset that would put block at screen center
         offset_x = WIDTH // 2 - int(bx * zoom)
@@ -2301,7 +2356,17 @@ while running:
         offset_x = max(min(offset_x, 0), WIDTH  - zoomed_w)
         offset_y = max(min(offset_y, 0), HEIGHT - zoomed_h)
 
-        screen.fill((255,255,255))  # fills behind – should be hidden after clamping
+        # Filling the background with pure white causes a burst of light
+        # when the End-of-Wave screen first appears.  Use black instead – or
+        # skip the fill entirely – while the EOS is showing.
+        overlay_states = ('fade_to_store', 'store_fade_in', 'resume_fade_in', 'end_of_wave_screen')
+        if st in overlay_states:
+            # Black base avoids flashing when a semi-transparent black overlay
+            # is applied on top.  A white base would show through briefly at
+            # low alpha causing a perceived flicker.
+            screen.fill((0, 0, 0))
+        else:
+            screen.fill((255, 255, 255))  # fills behind – should be hidden after clamping
         screen.blit(zoomed_surf, (offset_x, offset_y))
 
         # Draw overlays (store, pause menu, tutorial) during focus, approach, and resume so the armory appears
@@ -2339,7 +2404,7 @@ while running:
             flash_timer = 200
 
     # --- Fade overlay for store/game transitions ---
-    if wave_transition['state'] in ('fade_to_store', 'store_fade_in', 'store_fade_out', 'resume_fade_in'):
+    if wave_transition['state'] in ('fade_to_store', 'store_fade_in', 'resume_fade_in'):
         fade_alpha = wave_transition.get('fade_alpha', 0)
         if fade_alpha > 0:
             fade_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
@@ -2350,12 +2415,13 @@ while running:
     if end_of_wave_screen.active and wave_transition['state'] in ('idle', 'end_of_wave_screen'):
         end_of_wave_screen.draw(screen)
 
-    # Draw paddle tooltips (after paddles are drawn)
-    for tooltip in paddle_tooltips[:]:
-        tooltip.update(events)
-        tooltip.draw(screen)
-        if tooltip.done:
-            paddle_tooltips.remove(tooltip)
+    # Draw paddle tooltips only when End-of-Wave screen is not active.
+    if not end_of_wave_screen.active:
+        for tooltip in paddle_tooltips[:]:
+            tooltip.update(events)
+            tooltip.draw(screen)
+            if tooltip.done:
+                paddle_tooltips.remove(tooltip)
 
 pygame.quit()
 sys.exit()

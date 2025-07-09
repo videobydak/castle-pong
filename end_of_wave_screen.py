@@ -101,11 +101,14 @@ class EndOfWaveScreen:
         
     def _create_background(self):
         """Create a stable background surface."""
+        # Two-layer background: an opaque black surface ensures that
+        # underlying frame buffers never bleed through, while a secondary
+        # semi-transparent overlay provides the desired darkening effect
+        # without introducing on-going flicker.
         self.background = pygame.Surface((WIDTH, HEIGHT))
-        self.background.fill((0, 0, 0))  # Solid black background
-        # Create semi-transparent overlay
+        self.background.fill((0, 0, 0))  # Solid black base
         overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 200))  # Semi-transparent black
+        overlay.fill((0, 0, 0, 200))      # Semi-transparent dark overlay
         self.background.blit(overlay, (0, 0))
         
     def _load_pixel_font(self, size: int) -> pygame.font.Font:

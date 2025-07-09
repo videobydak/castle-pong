@@ -289,7 +289,7 @@ class Castle:
                     self.block_colors[key] = BLOCK_COLOR_DEFAULT
                     self.block_shapes[key] = 'wall'
 
-                print(f"Adding block to castle.blocks (init): key={key}")
+                print(f"[DEBUG] Adding block to castle.blocks (init): key={key}")
                 self.blocks.append(r)
 
                 # Set default tier for blocks created in constructor (tier 1 = value 2)
@@ -416,7 +416,7 @@ class Castle:
                     size,
                 )
                 key = (r.x, r.y)
-                print(f"Adding rounded corner block to castle.blocks: key={key}")
+                print(f"[DEBUG] Adding rounded corner block to castle.blocks: key={key}")
                 self.blocks.append(r)
                 self.block_shapes[key] = f'round_{corner_tag}'
                 self.block_colors[key] = BLOCK_COLOR_DEFAULT
@@ -447,7 +447,7 @@ class Castle:
         
         # Safeguard: warn if this block is not in our blocks list (indicates stale reference)
         if block not in self.blocks:
-            print(f"WARNING: Getting texture for block not in castle.blocks at {key} - possible stale reference")
+            print(f"[DEBUG] WARNING: Getting texture for block not in castle.blocks at {key} - possible stale reference")
         
         # Ensure key exists to avoid runtime errors on stale rects
         if key not in self.block_shapes:
@@ -460,7 +460,7 @@ class Castle:
         # ball is overlapping the tile.  We fall back to the default
         # tier-1 colour so the game can continue uninterrupted.
         if key not in self.block_colors:
-            print(f"WARNING: Block {key} has no color, using default: {BLOCK_COLOR_DEFAULT}")
+            print(f"[DEBUG] WARNING: Block {key} has no color, using default: {BLOCK_COLOR_DEFAULT}")
             self.block_colors[key] = BLOCK_COLOR_DEFAULT
 
         color = self.block_colors[key]
@@ -539,7 +539,7 @@ class Castle:
             
             # Remove the block from the blocks list (it's being rebuilt)
             if block in self.blocks:
-                print(f"Removing block from castle.blocks (rebuild hit): key={key}")
+                print(f"[DEBUG] Removing block from castle.blocks (rebuild hit): key={key}")
                 self.blocks.remove(block)
             
             # Clean up any existing data for this block
@@ -670,7 +670,7 @@ class Castle:
         if key in self.block_cracks:
             del self.block_cracks[key]
 
-        print(f"Removing block from castle.blocks: key={key}")
+        print(f"[DEBUG] Removing block from castle.blocks: key={key}")
         self.blocks.remove(block)
         if key in self.block_health:
             del self.block_health[key]
@@ -1316,16 +1316,16 @@ class Castle:
 
     def set_block_color_by_strength(self, key, tier):
         """Assign the correct color for a block based on its reinforcement tier (2, 3, 4)."""
-        print(f"set_block_color_by_strength: key={key}, tier={tier}")
+        print(f"[DEBUG] set_block_color_by_strength: key={key}, tier={tier}")
         if tier == 2:
             self.block_colors[key] = BLOCK_COLOR_L1
-            print(f"Set color to BLOCK_COLOR_L1: {BLOCK_COLOR_L1}")
+            print(f"[DEBUG] Set color to BLOCK_COLOR_L1: {BLOCK_COLOR_L1}")
         elif tier == 3:
             self.block_colors[key] = BLOCK_COLOR_L2
-            print(f"Set color to BLOCK_COLOR_L2: {BLOCK_COLOR_L2}")
+            print(f"[DEBUG] Set color to BLOCK_COLOR_L2: {BLOCK_COLOR_L2}")
         elif tier == 4:
             self.block_colors[key] = BLOCK_COLOR_L3
-            print(f"Set color to BLOCK_COLOR_L3: {BLOCK_COLOR_L3}")
+            print(f"[DEBUG] Set color to BLOCK_COLOR_L3: {BLOCK_COLOR_L3}")
         else:
             self.block_colors[key] = BLOCK_COLOR_DEFAULT  # fallback
-            print(f"Set color to BLOCK_COLOR_DEFAULT: {BLOCK_COLOR_DEFAULT}")
+            print(f"[DEBUG] Set color to BLOCK_COLOR_DEFAULT: {BLOCK_COLOR_DEFAULT}")

@@ -91,6 +91,21 @@ DEBUG = False  # Set to False to disable debug console logs
 # --- Debug Settings ---
 DEBUG_STARTING_COINS = 1000000  # Set to a positive number to start with that many coins (only works when DEBUG = True)
 
+# --- Background music playlist configuration ---
+# Specify each track filename and its exact duration in milliseconds. The
+# game will start a new track after the given duration instead of relying on
+# the mixer to signal the end of playback.
+#
+# Example durations are placeholders – update these numbers to the precise
+# lengths of your actual files (they must match or the loop will start too
+# early/late).
+BACKGROUND_MUSIC_TRACKS = [
+    ("Untitled3.mp3", 101_000),  # 1:41
+    ("Untitled4.mp3", 156_000),  # 2:36
+    ("Untitled5.mp3", 72_000),   # 1:12
+    ("Untitled6.mp3", 61_000),   # 1:01
+]
+
 _original_print = _builtins.print
 
 def _debug_filter_print(*args, **kwargs):

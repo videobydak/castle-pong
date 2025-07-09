@@ -811,7 +811,7 @@ def update_castle(castle, dt_ms, player_score=0, paddles=None, player_wall=None,
                         castle.set_block_color_by_strength(key, original_tier)
                         castle.block_shapes[key] = 'wall'
                         castle.blocks.append(new_block)
-                        print(f"Added block to castle.blocks: key={key}")
+                        print(f"[DEBUG] Added block to castle.blocks: key={key}")
                         
                         # Increment rebuild count for this block
                         if not hasattr(castle, 'block_rebuild_count'):
@@ -874,7 +874,7 @@ def update_castle(castle, dt_ms, player_score=0, paddles=None, player_wall=None,
                     castle.set_block_color_by_strength(key, tier)
                     castle.block_shapes[key] = 'wall'
                     castle.blocks.append(new_block)
-                    print(f"Added block to castle.blocks (normal rebuild): key={key}, tier={tier}")
+                    print(f"[DEBUG] Added block to castle.blocks (normal rebuild): key={key}, tier={tier}")
                     
                     # Increment rebuild count for this block
                     if not hasattr(castle, 'block_rebuild_count'):
