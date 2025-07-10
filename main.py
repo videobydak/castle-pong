@@ -140,9 +140,16 @@ def paddle_ball_collision_2d(ball, paddle):
         else:  # right
             paddle_vel = pygame.Vector2(-paddle.inward_vel, paddle.vel)  # inward is left (negative x)
     
-    # Compute collision normal (from paddle center to ball center)
-    paddle_center = pygame.Vector2(paddle.rect.centerx, paddle.rect.centery)
-    normal = (ball.pos - paddle_center).normalize()
+    # Compute collision normal based on paddle's facing direction (not center-to-ball)
+    # This ensures balls reflect off the paddle face properly
+    if paddle.side == 'top':
+        normal = pygame.Vector2(0, 1)  # facing down
+    elif paddle.side == 'bottom':
+        normal = pygame.Vector2(0, -1)  # facing up
+    elif paddle.side == 'left':
+        normal = pygame.Vector2(1, 0)   # facing right
+    else:  # right
+        normal = pygame.Vector2(-1, 0)  # facing left
     
     # Project velocities onto the collision normal
     v_ball_n = ball.vel.dot(normal)
@@ -1363,11 +1370,6 @@ while running:
                         if 'paddle_hit' in sounds:
                             sounds['paddle_hit'].play()
                         p.offset += impact_dir * 4
-
-                        # Cap speed
-                        speed = ball.vel.length()
-                        if speed > BALL_SPEED:
-                            ball.vel = ball.vel.normalize() * BALL_SPEED
 
                         # Slight nudge to avoid instant re-collision
                         ball.pos += ball.vel * 0.1
