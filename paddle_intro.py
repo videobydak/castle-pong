@@ -348,7 +348,7 @@ class PaddleIntro:
 
             # EDGE CASE FIX: Safer text surface handling
             try:
-                txt = self.text_surf.copy()
+                txt = self.text_surf.copy().convert_alpha()
                 txt.set_alpha(max(0, min(255, alpha)))  # Clamp alpha to valid range
                 surf.blit(txt, self.text_rect)
             except (pygame.error, ValueError):
@@ -442,7 +442,7 @@ class PaddleIntro:
 
             # EDGE CASE FIX: Safer text surface handling
             try:
-                txt = self.text_surf.copy()
+                txt = self.text_surf.copy().convert_alpha()
                 txt.set_alpha(max(0, min(255, alpha)))  # Clamp alpha to valid range
                 surf.blit(txt, self.text_rect)
             except (pygame.error, ValueError):

@@ -538,7 +538,7 @@ class EndOfWaveScreen:
             if self.heading_alpha[i] > 0:
                 # Draw heading
                 alpha = int(self.heading_alpha[i])
-                heading_surf = self.pixel_font_medium.render(heading, True, (255, 255, 255))
+                heading_surf = self.pixel_font_medium.render(heading, True, (255, 255, 255)).convert_alpha()
                 heading_surf.set_alpha(alpha)
                 heading_rect = heading_surf.get_rect(center=(WIDTH // 2, y_offset))
                 screen.blit(heading_surf, heading_rect)
@@ -546,7 +546,7 @@ class EndOfWaveScreen:
                 # Draw value
                 value_text = self._get_value_text(i)
                 if value_text:
-                    value_surf = self.pixel_font_large.render(value_text, True, (255, 255, 0))
+                    value_surf = self.pixel_font_large.render(value_text, True, (255, 255, 0)).convert_alpha()
                     value_surf.set_alpha(alpha)
                     value_rect = value_surf.get_rect(center=(WIDTH // 2, y_offset + 40))
                     screen.blit(value_surf, value_rect)
