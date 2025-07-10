@@ -237,13 +237,8 @@ class TutorialOverlay:
 
     def _load_pixel_font(self, size):
         """Load a bundled TTF pixel font if available, else fallback to monospace."""
-        pix_path = 'PressStart2P-Regular.ttf'  # Download from Google Fonts
-        if os.path.isfile(pix_path):
-            try:
-                return pygame.font.Font(pix_path, size)
-            except Exception:
-                pass
-        return pygame.font.SysFont('Courier New', size, bold=True)
+        from utils import load_font
+        return load_font('PressStart2P-Regular.ttf', size)
 
     # ------------------------------------------------------------------
     # Button callbacks

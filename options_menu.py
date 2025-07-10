@@ -903,13 +903,8 @@ class OptionsMenu:
     
     def _load_pixel_font(self, size):
         """Load pixel font or fallback to system font."""
-        pix_path = 'PressStart2P-Regular.ttf'
-        if os.path.isfile(pix_path):
-            try:
-                return pygame.font.Font(pix_path, size)
-            except Exception:
-                pass
-        return pygame.font.SysFont('Courier New', size, bold=True)
+        from utils import load_font
+        return load_font('PressStart2P-Regular.ttf', size)
     
     def get_setting(self, key, default=None):
         """Get a setting value."""

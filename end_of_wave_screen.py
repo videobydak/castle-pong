@@ -113,12 +113,8 @@ class EndOfWaveScreen:
         
     def _load_pixel_font(self, size: int) -> pygame.font.Font:
         """Load pixel font with fallback."""
-        try:
-            if os.path.isfile('PressStart2P-Regular.ttf'):
-                return pygame.font.Font('PressStart2P-Regular.ttf', size)
-        except:
-            pass
-        return pygame.font.SysFont('Courier New', size, bold=True)
+        from utils import load_font
+        return load_font('PressStart2P-Regular.ttf', size)
     
     def _get_time_bonus_multiplier(self, completion_time_seconds: float) -> float:
         """Calculate time bonus multiplier based on completion time."""

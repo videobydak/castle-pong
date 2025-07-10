@@ -5,7 +5,7 @@ import os
 
 from config import WIDTH, HEIGHT, PADDLE_THICK
 from paddle import Paddle
-from utils import Particle
+from utils import Particle, load_font
 
 class PaddleIntro:
     """Handles introductory animation when a new paddle is unlocked."""
@@ -268,7 +268,7 @@ class PaddleIntro:
     def _draw_speech_bubble(self, surf, text, pos, alpha=255):
         # Draws a pixel-art style speech bubble with the given text at pos (center bottom of bubble)
         # pos: (x, y) tuple for the tip of the bubble tail
-        font = pygame.font.Font('PressStart2P-Regular.ttf', 18) if os.path.isfile('PressStart2P-Regular.ttf') else pygame.font.SysFont('Courier New', 18, bold=True)
+        font = load_font('PressStart2P-Regular.ttf', 18)
         lines = text.split(". ")  # Split into lines for better fit
         rendered = [font.render(line, True, (0,0,0)) for line in lines]
         w = max(r.get_width() for r in rendered) + 24
@@ -362,7 +362,7 @@ class PaddleIntro:
     def _draw_speech_bubble(self, surf, text, pos, alpha=255):
         # Draws a pixel-art style speech bubble with the given text at pos (center bottom of bubble)
         # pos: (x, y) tuple for the tip of the bubble tail
-        font = pygame.font.Font('PressStart2P-Regular.ttf', 18) if os.path.isfile('PressStart2P-Regular.ttf') else pygame.font.SysFont('Courier New', 18, bold=True)
+        font = load_font('PressStart2P-Regular.ttf', 18)
         lines = text.split(". ")  # Split into lines for better fit
         rendered = [font.render(line, True, (0,0,0)) for line in lines]
         w = max(r.get_width() for r in rendered) + 24

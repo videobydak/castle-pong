@@ -201,6 +201,43 @@ def resource_path(relative: str) -> str:
     return str(Path(base_path) / relative)
 
 
+def resource_exists(relative: str) -> bool:
+    """Check if a resource exists, works both from source and when bundled.
+    
+    This is needed because os.path.isfile() doesn't work with bundled resources.
+    """
+    # If we're running from source, use normal file check
+    if not hasattr(sys, "_MEIPASS"):
+        return os.path.isfile(relative)
+    
+    # If we're bundled, check if the resource exists in the bundle
+    resource_file = resource_path(relative)
+    return os.path.isfile(resource_file)
+
+
+def load_font(font_name: str, size: int, fallback_name: str = 'Courier New', fallback_bold: bool = True) -> pygame.font.Font:
+    """Load a font with proper resource path handling and fallback.
+    
+    This function handles font loading for both source and bundled versions.
+    """
+    try:
+        # Try to load the custom font using resource_path
+        font_path = resource_path(font_name)
+        if os.path.isfile(font_path):
+            return pygame.font.Font(font_path, size)
+        
+        # If resource_path didn't work, try the original filename
+        if os.path.isfile(font_name):
+            return pygame.font.Font(font_name, size)
+            
+    except Exception as e:
+        print(f"[Font] Failed to load {font_name}: {e}")
+    
+    # Fallback to system font
+    print(f"[Font] Using fallback font: {fallback_name}")
+    return pygame.font.SysFont(fallback_name, size, bold=fallback_bold)
+
+
 # Monkey-patch pygame so existing ``pygame.mixer.Sound("foo.wav")`` and
 # ``pygame.font.Font("PressStart2P-Regular.ttf", size)`` calls keep working even
 # after the game is frozen into a single executable.  If the original relative

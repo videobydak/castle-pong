@@ -147,20 +147,8 @@ class Store:
 
     def _load_pixel_font(self, size: int):
         """Load bundled PressStart2P font or fallback to monospace."""
-        import os
-        pix_path = 'PressStart2P-Regular.ttf'
-        if os.path.isfile(pix_path):
-            try:
-                # Ensure pygame font module is ready (Store may be imported before pygame.init())
-                if not pygame.font.get_init():
-                    try:
-                        pygame.font.init()
-                    except Exception:
-                        pass
-                return pygame.font.Font(pix_path, size)
-            except Exception:
-                pass
-        return pygame.font.SysFont('Courier New', size, bold=True)
+        from utils import load_font
+        return load_font('PressStart2P-Regular.ttf', size)
 
     def _initialize_upgrades(self) -> Dict[str, List[StoreUpgrade]]:
         """Create all store upgrades organized by category."""

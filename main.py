@@ -269,7 +269,8 @@ def start_random_wave_music():
 # --- Background wave music files ---
 # Pull filenames directly from BACKGROUND_MUSIC_TRACKS in config.py. Only keep
 # tracks that actually exist on disk to avoid loading errors.
-WAVE_MUSIC_FILES = [f for (f, _d) in BACKGROUND_MUSIC_TRACKS if os.path.isfile(f)]
+from utils import resource_exists, load_font
+WAVE_MUSIC_FILES = [f for (f, _d) in BACKGROUND_MUSIC_TRACKS if resource_exists(f)]
 # Map filename -> hard-coded duration (ms) for timer-based track switching
 TRACK_DURATIONS = {f: dur for (f, dur) in BACKGROUND_MUSIC_TRACKS}
 
@@ -635,7 +636,7 @@ class PaddleTooltip:
         self.start_time = pygame.time.get_ticks()
         self.done = False
         # Font: use pixel font if available
-        self.font = pygame.font.Font('PressStart2P-Regular.ttf', self.FONT_SIZE) if os.path.isfile('PressStart2P-Regular.ttf') else pygame.font.SysFont('Courier New', self.FONT_SIZE, bold=True)
+        self.font = load_font('PressStart2P-Regular.ttf', self.FONT_SIZE)
         self.text = self._get_instruction_text()
         self.lines = self.text.split('. ')
         self.rendered = [self.font.render(line, True, (0,0,0)) for line in self.lines]
