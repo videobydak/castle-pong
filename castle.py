@@ -1012,8 +1012,10 @@ class Castle:
         self.hit_block(block)
 
     def _scale(self, key, score):
-        """Return 0-1 factor based on player's score.
-        Aspect begins ramping after its offset and is maxed by 1000 pts."""
+        """Return 0-1 difficulty factor based on the player's score.
+        The value ramps up once *score* exceeds the per-aspect offset and
+        reaches 1.0 after roughly 40 points beyond that offset. (Historical
+        comment referenced 1 000 points, but the logic now caps much sooner.)"""
         offset = self._score_offsets[key]
         return max(0.0, min(1.0, (score - offset) / 40.0)) 
 

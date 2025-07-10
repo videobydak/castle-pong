@@ -503,7 +503,8 @@ def update_castle(castle, dt_ms, player_score=0, paddles=None, player_wall=None,
                 # ------------------------------------------------------
                 #  Choose ammo type with dynamic probabilities
                 # ------------------------------------------------------
-                score_ratio = min(max(player_score, 0), 1000) / 1000.0  # 0→1 up to 1000 pts
+                # Scale difficulty gradually up to a score of 5 000 instead of the previous 1 000
+                score_ratio = min(max(player_score, 0), 5000) / 5000.0  # 0→1 up to 5 000 pts
                 fireball_prob = 0.05 + 0.35 * score_ratio  # 5 % → 40 %
                 potion_prob   = POWERUP_CHANCE            # from config.py
 

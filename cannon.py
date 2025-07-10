@@ -263,8 +263,8 @@ class Cannon:
 
         vx, vy = direction.x * config.BALL_SPEED, direction.y * config.BALL_SPEED
 
-        # Clamp speed for regular (white) cannonballs
-        if shot_type == 'white':
+        # Apply slight randomisation to speed for regular (white) and red cannonballs
+        if shot_type in ('white', 'red'):
             speed_mult = random.uniform(0.85, 1.25)
             vx, vy = direction.x * config.BALL_SPEED * speed_mult, direction.y * config.BALL_SPEED * speed_mult
 

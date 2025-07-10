@@ -1362,12 +1362,11 @@ while running:
                         # Grow paddle if widen is active
                         if power_timers.get(side, [None,0])[0] == 'widen':
                             p.grow_on_hit()
-                        # Reflect off paddle rectangle then add spin & curved redirection
+                        # --- Single intended bounce for fireballs ---
                         curved_paddle_reflect(ball, p)
-                        # Apply 2D collision physics
                         paddle_ball_collision_2d(ball, p)
-                        # Play paddle hit sound (for red fireball)
-                        if 'paddle_hit' in sounds:
+                        # Feedback (sound, shake)
+                        if 'paddle_hit' in sounds and not ball.is_power:
                             sounds['paddle_hit'].play()
                         p.offset += impact_dir * 4
 
@@ -1418,10 +1417,11 @@ while running:
                             # Grow paddle if widen is active
                             if power_timers.get(side, [None,0])[0] == 'widen':
                                 p.grow_on_hit()
-                            # white ball bounce with reflect, spin and curved redirection
-                            curved_paddle_reflect(ball, p)
-                            # Apply 2D collision physics
-                            paddle_ball_collision_2d(ball, p)
+                            # white ball bounce with reflect, spin and curved redirection – but only if not already a fireball
+                            if ball.color != RED:
+                                curved_paddle_reflect(ball, p)
+                                # Apply 2D collision physics
+                                paddle_ball_collision_2d(ball, p)
                             # Play paddle hit sound (for white cannonball, not potions)
                             if 'paddle_hit' in sounds and not ball.is_power:
                                 sounds['paddle_hit'].play()
@@ -1453,10 +1453,11 @@ while running:
                     # Grow paddle if widen is active
                     if power_timers.get(side, [None,0])[0] == 'widen':
                         p.grow_on_hit()
-                    # white ball bounce with reflect, spin and curved redirection
-                    curved_paddle_reflect(ball, p)
-                    # Apply 2D collision physics
-                    paddle_ball_collision_2d(ball, p)
+                    # white ball bounce with reflect, spin and curved redirection – but only if not already a fireball
+                    if ball.color != RED:
+                        curved_paddle_reflect(ball, p)
+                        # Apply 2D collision physics
+                        paddle_ball_collision_2d(ball, p)
                     # Play paddle hit sound (for white cannonball, not potions)
                     if 'paddle_hit' in sounds and not ball.is_power:
                         sounds['paddle_hit'].play()
