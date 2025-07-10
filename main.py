@@ -645,15 +645,24 @@ class PaddleTooltip:
         self.dismiss_start = None  # time when space pressed
 
     def _get_instruction_text(self):
-        base = "SPACE to 'bump'. SPACE to dismiss tooltips"
+        bump_key = get_key_name(get_control_key('bump_launch'))
+        base = f"{bump_key} to 'bump'. {bump_key} to dismiss tooltips"
         if self.side == 'bottom':
-            return "Use ← and → to move your paddle. " + base
+            left_key = get_key_name(get_control_key('bottom_paddle_left'))
+            right_key = get_key_name(get_control_key('bottom_paddle_right'))
+            return f"Use {left_key} and {right_key} to move your paddle. " + base
         elif self.side == 'top':
-            return "Use A and D to move your paddle. " + base
+            left_key = get_key_name(get_control_key('top_paddle_left'))
+            right_key = get_key_name(get_control_key('top_paddle_right'))
+            return f"Use {left_key} and {right_key} to move your paddle. " + base
         elif self.side == 'left':
-            return "Use W and S to move your paddle. " + base
+            up_key = get_key_name(get_control_key('left_paddle_up'))
+            down_key = get_key_name(get_control_key('left_paddle_down'))
+            return f"Use {up_key} and {down_key} to move your paddle. " + base
         else:
-            return "Use ↑ and ↓ to move your paddle. " + base
+            up_key = get_key_name(get_control_key('right_paddle_up'))
+            down_key = get_key_name(get_control_key('right_paddle_down'))
+            return f"Use {up_key} and {down_key} to move your paddle. " + base
 
     def update(self, events):
         now = pygame.time.get_ticks()
@@ -662,7 +671,7 @@ class PaddleTooltip:
             self.done = True
         # Early dismissal on spacebar keydown
         for e in events:
-            if e.type == pygame.KEYDOWN and e.key == pygame.K_SPACE and self.dismiss_start is None:
+            if e.type == pygame.KEYDOWN and e.key == get_control_key('bump_launch') and self.dismiss_start is None:
                 self.dismiss_start = now
 
     def draw(self, surf):
@@ -1029,11 +1038,11 @@ while running:
             if e.type==pygame.KEYDOWN or e.type==pygame.KEYUP:
                 down = (e.type==pygame.KEYDOWN)
                 # handle Pause toggle
-                if e.type==pygame.KEYDOWN and e.key==pygame.K_ESCAPE:
+                if e.type==pygame.KEYDOWN and e.key==get_control_key('pause_menu'):
                     pause_menu.toggle()
                     continue  # don't process further for ESC
                 # spacebar to release sticky balls or bump paddles
-                if e.key==pygame.K_SPACE and down:
+                if e.key==get_control_key('bump_launch') and down:
                     now = pygame.time.get_ticks()
                     for b in balls:
                         if b.stuck_to is not None:
@@ -1074,17 +1083,17 @@ while running:
     
     # --- Update paddle input based on current key state for snappy response ---
     keys = pygame.key.get_pressed()
-    space_down = keys[pygame.K_SPACE]
+    space_down = is_control_pressed('bump_launch', keys)
 
     # Only update direction for paddles that are currently active
     if not paused and 'top' in paddles:
-        paddles['top'].dir = (-1 if keys[pygame.K_a] else (1 if keys[pygame.K_d] else 0))
+        paddles['top'].dir = (-1 if is_control_pressed('top_paddle_left', keys) else (1 if is_control_pressed('top_paddle_right', keys) else 0))
     if not paused and 'bottom' in paddles:
-        paddles['bottom'].dir = (-1 if keys[pygame.K_LEFT] else (1 if keys[pygame.K_RIGHT] else 0))
+        paddles['bottom'].dir = (-1 if is_control_pressed('bottom_paddle_left', keys) else (1 if is_control_pressed('bottom_paddle_right', keys) else 0))
     if not paused and 'left' in paddles:
-        paddles['left'].dir = (-1 if keys[pygame.K_w] else (1 if keys[pygame.K_s] else 0))
+        paddles['left'].dir = (-1 if is_control_pressed('left_paddle_up', keys) else (1 if is_control_pressed('left_paddle_down', keys) else 0))
     if not paused and 'right' in paddles:
-        paddles['right'].dir = (-1 if keys[pygame.K_UP] else (1 if keys[pygame.K_DOWN] else 0))
+        paddles['right'].dir = (-1 if is_control_pressed('right_paddle_up', keys) else (1 if is_control_pressed('right_paddle_down', keys) else 0))
     
     # inform paddles of bump button state
     if not paused:

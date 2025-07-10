@@ -2,7 +2,7 @@ import pygame
 import math
 import random
 import os
-from config import WIDTH, HEIGHT, WHITE, SCALE
+from config import WIDTH, HEIGHT, WHITE, SCALE, YELLOW, get_control_key
 from typing import Optional, Dict, Any
 from coin import get_coin_count
 
@@ -604,12 +604,12 @@ class EndOfWaveScreen:
                         return True
             
         if event.type == pygame.KEYDOWN:
-            if event.key == pygame.K_LEFT or event.key == pygame.K_RIGHT:
+            if event.key == get_control_key('bottom_paddle_left') or event.key == get_control_key('bottom_paddle_right'):
                 if self.state == 'waiting_for_input':
                     # Navigate between buttons
                     self.selected_button = 1 - self.selected_button  # Toggle between 0 and 1
                     return True
-            elif event.key == pygame.K_SPACE or event.key == pygame.K_RETURN:
+            elif event.key in (pygame.K_SPACE, pygame.K_RETURN):
                 if self.state == 'waiting_for_input':
                     # Select current button
                     self.selected_action = 'continue' if self.selected_button == 0 else 'shop'

@@ -2,10 +2,12 @@ import pygame
 import sys
 import os
 import json
-from config import WIDTH, HEIGHT, WHITE, YELLOW
+from config import (WIDTH, HEIGHT, WHITE, YELLOW, DEFAULT_CONTROLS, CURRENT_CONTROLS, 
+                   CONTROL_DESCRIPTIONS, get_key_name, update_control_mapping, 
+                   has_control_conflicts)
 
 class OptionsMenu:
-    """Options screen with volume controls, mute toggles, and game settings."""
+    """Options screen with volume controls, mute toggles, game settings, and control remapping."""
     
     def __init__(self):
         self.active = False
@@ -19,20 +21,41 @@ class OptionsMenu:
         self.title_font = self._load_pixel_font(96)
         self.btn_font = self._load_pixel_font(32)
         self.label_font = self._load_pixel_font(24)
+        self.key_font = self._load_pixel_font(20)
         
         self.title_surf = self._render_outline("Options", self.title_font, YELLOW, (0, 0, 0), 2)
-        self.title_rect = self.title_surf.get_rect(center=(WIDTH // 2, HEIGHT // 4))
+        self.title_rect = self.title_surf.get_rect(center=(WIDTH // 2, HEIGHT // 6))
         
         # Settings storage
         self.settings = self._load_settings()
         
         # Control state
-        self.selected_option = 0
+        #   nav_index 0  -> Tabs row
+        #   nav_index 1..len(options)   -> option rows
+        #   nav_index len(options)+1    -> Back button
+        #   nav_index len(options)+2    -> Reset button
+        self.nav_index = 1  # Start on first option row by default
+        self.selected_option = 0  # Convenience cache for current option idx
         self.dragging_slider = None
         self.mouse_held = False
         
+        # Control remapping state
+        self.remapping_control = None  # Which control is being remapped
+        self.remapping_start_time = 0
+        
+        # Current section ('audio', 'video', 'controls')
+        self.current_section = 'audio'
+        
         # Setup UI elements
         self._setup_ui_elements()
+        # --- Scrolling state ---
+        # When the controls section contains more options than can fit on screen,
+        # we scroll the list vertically and keep the selected option visible.
+        self.scroll_offset = 0  # Current vertical scroll offset in pixels
+        self.max_scroll = 0     # Maximum allowed scroll based on content height
+
+        # Establish initial scroll limits (after UI elements exist)
+        self._update_scroll_limits()
     
     def _load_settings(self):
         """Load settings from file or create defaults."""
@@ -42,7 +65,8 @@ class OptionsMenu:
             'music_muted': False,
             'sfx_muted': False,
             'screen_shake': True,
-            'show_fps': False
+            'show_fps': False,
+            'controls': DEFAULT_CONTROLS.copy()
         }
         
         try:
@@ -51,6 +75,14 @@ class OptionsMenu:
                     loaded = json.load(f)
                     # Merge with defaults to handle new settings
                     default_settings.update(loaded)
+                    
+                    # Update control mappings if they exist in the loaded settings
+                    if 'controls' in loaded:
+                        # Update global control mappings
+                        for action, key in loaded['controls'].items():
+                            if action in DEFAULT_CONTROLS:
+                                update_control_mapping(action, key)
+                    
         except Exception as e:
             print(f"[Options] Failed to load settings: {e}")
         
@@ -59,6 +91,9 @@ class OptionsMenu:
     def _save_settings(self):
         """Save current settings to file."""
         try:
+            # Include current control mappings in settings
+            self.settings['controls'] = CURRENT_CONTROLS.copy()
+            
             with open('game_settings.json', 'w') as f:
                 json.dump(self.settings, f, indent=2)
         except Exception as e:
@@ -66,84 +101,198 @@ class OptionsMenu:
     
     def _setup_ui_elements(self):
         """Setup all UI elements with positions and rectangles."""
-        start_y = self.title_rect.bottom + 60
-        self.options = []
+        # ---------- Tabs (size to text) ----------
+        def _create_tab_rects(labels, y, padding=40, spacing=24):
+            font = self.btn_font
+            widths = [font.size(lbl)[0] + padding for lbl in labels]
+            total = sum(widths) + spacing * (len(labels) - 1)
+            start_x = WIDTH // 2 - total // 2
+            rects = []
+            x = start_x
+            for w in widths:
+                rects.append(pygame.Rect(x, y, w, 40))
+                x += w + spacing
+            return rects
+
+        tab_y = self.title_rect.bottom + 30
+        tab_labels = ['Audio', 'Video', 'Controls']
+        tab_rects = _create_tab_rects(tab_labels, tab_y)
+
+        self.tabs = {
+            key: {'rect': r, 'label': lbl, 'hover': False}
+            for key, r, lbl in zip(['audio', 'video', 'controls'], tab_rects, tab_labels)
+        }
         
-        # Music Volume Slider
-        music_y = start_y
-        self.options.append({
-            'type': 'slider',
-            'key': 'music_volume',
-            'label': 'Music Volume',
-            'rect': pygame.Rect(WIDTH//2 - 200, music_y, 400, 40),
-            'slider_rect': pygame.Rect(WIDTH//2 - 150, music_y + 10, 300, 20),
-            'label_rect': pygame.Rect(WIDTH//2 - 200, music_y - 30, 400, 25)
-        })
-        
-        # Music Toggle
-        mute_music_y = music_y + 70
-        self.options.append({
-            'type': 'toggle',
-            'key': 'music_muted',
-            'label': 'Music',
-            'rect': pygame.Rect(WIDTH//2 - 100, mute_music_y, 200, 40),
-            'label_rect': pygame.Rect(WIDTH//2 - 100, mute_music_y - 30, 200, 25)
-        })
-        
-        # SFX Volume Slider
-        sfx_y = mute_music_y + 80
-        self.options.append({
-            'type': 'slider',
-            'key': 'sfx_volume',
-            'label': 'SFX Volume',
-            'rect': pygame.Rect(WIDTH//2 - 200, sfx_y, 400, 40),
-            'slider_rect': pygame.Rect(WIDTH//2 - 150, sfx_y + 10, 300, 20),
-            'label_rect': pygame.Rect(WIDTH//2 - 200, sfx_y - 30, 400, 25)
-        })
-        
-        # SFX Toggle
-        mute_sfx_y = sfx_y + 70
-        self.options.append({
-            'type': 'toggle',
-            'key': 'sfx_muted',
-            'label': 'SFX',
-            'rect': pygame.Rect(WIDTH//2 - 100, mute_sfx_y, 200, 40),
-            'label_rect': pygame.Rect(WIDTH//2 - 100, mute_sfx_y - 30, 200, 25)
-        })
-        
-        # Screen Shake Toggle
-        shake_y = mute_sfx_y + 80
-        self.options.append({
-            'type': 'toggle',
-            'key': 'screen_shake',
-            'label': 'Screen Shake',
-            'rect': pygame.Rect(WIDTH//2 - 100, shake_y, 200, 40),
-            'label_rect': pygame.Rect(WIDTH//2 - 100, shake_y - 30, 200, 25)
-        })
-        
-        # Show FPS Toggle
-        fps_y = shake_y + 80
-        self.options.append({
-            'type': 'toggle',
-            'key': 'show_fps',
-            'label': 'Show FPS',
-            'rect': pygame.Rect(WIDTH//2 - 100, fps_y, 200, 40),
-            'label_rect': pygame.Rect(WIDTH//2 - 100, fps_y - 30, 200, 25)
-        })
+        # Setup options based on current section
+        self._setup_section_options()
         
         # Back and Reset Buttons
-        back_y = fps_y + 100
+        button_y = HEIGHT - 80
         self.back_button = {
-            'rect': pygame.Rect(WIDTH//2 - 180, back_y, 170, 60),
+            'rect': pygame.Rect(WIDTH//2 - 180, button_y, 170, 60),
             'label': 'Back',
             'hover': False
         }
         
         self.reset_button = {
-            'rect': pygame.Rect(WIDTH//2 + 10, back_y, 200, 60),
+            'rect': pygame.Rect(WIDTH//2 + 10, button_y, 200, 60),
             'label': 'Reset',
             'hover': False
         }
+    
+    def _setup_section_options(self):
+        """Setup options for the current section."""
+        self.options = []
+        # Reset scroll when rebuilding the list (e.g., switching tabs)
+        self.scroll_offset = 0
+        start_y = max(tab['rect'].bottom for tab in self.tabs.values()) + 60
+        
+        if self.current_section == 'audio':
+            # Music Volume Slider
+            music_y = start_y
+            self.options.append({
+                'type': 'slider',
+                'key': 'music_volume',
+                'label': 'Music Volume',
+                'rect': pygame.Rect(WIDTH//2 - 200, music_y, 400, 40),
+                'slider_rect': pygame.Rect(WIDTH//2 - 150, music_y + 10, 300, 20),
+                'label_rect': pygame.Rect(WIDTH//2 - 200, music_y - 30, 400, 25)
+            })
+            
+            # Music Toggle
+            mute_music_y = music_y + 70
+            self.options.append({
+                'type': 'toggle',
+                'key': 'music_muted',
+                'label': 'Music',
+                'rect': pygame.Rect(WIDTH//2 - 100, mute_music_y, 200, 40),
+                'label_rect': pygame.Rect(WIDTH//2 - 100, mute_music_y - 30, 200, 25)
+            })
+            
+            # SFX Volume Slider
+            sfx_y = mute_music_y + 80
+            self.options.append({
+                'type': 'slider',
+                'key': 'sfx_volume',
+                'label': 'SFX Volume',
+                'rect': pygame.Rect(WIDTH//2 - 200, sfx_y, 400, 40),
+                'slider_rect': pygame.Rect(WIDTH//2 - 150, sfx_y + 10, 300, 20),
+                'label_rect': pygame.Rect(WIDTH//2 - 200, sfx_y - 30, 400, 25)
+            })
+            
+            # SFX Toggle
+            mute_sfx_y = sfx_y + 70
+            self.options.append({
+                'type': 'toggle',
+                'key': 'sfx_muted',
+                'label': 'SFX',
+                'rect': pygame.Rect(WIDTH//2 - 100, mute_sfx_y, 200, 40),
+                'label_rect': pygame.Rect(WIDTH//2 - 100, mute_sfx_y - 30, 200, 25)
+            })
+            
+        elif self.current_section == 'video':
+            # Screen Shake Toggle
+            shake_y = start_y
+            self.options.append({
+                'type': 'toggle',
+                'key': 'screen_shake',
+                'label': 'Screen Shake',
+                'rect': pygame.Rect(WIDTH//2 - 100, shake_y, 200, 40),
+                'label_rect': pygame.Rect(WIDTH//2 - 100, shake_y - 30, 200, 25)
+            })
+            
+            # Show FPS Toggle
+            fps_y = shake_y + 80
+            self.options.append({
+                'type': 'toggle',
+                'key': 'show_fps',
+                'label': 'Show FPS',
+                'rect': pygame.Rect(WIDTH//2 - 100, fps_y, 200, 40),
+                'label_rect': pygame.Rect(WIDTH//2 - 100, fps_y - 30, 200, 25)
+            })
+            
+        elif self.current_section == 'controls':
+            # Control remapping buttons
+            y_offset = start_y
+            control_actions = [
+                'bottom_paddle_left', 'bottom_paddle_right',
+                'top_paddle_left', 'top_paddle_right',
+                'left_paddle_up', 'left_paddle_down',
+                'right_paddle_up', 'right_paddle_down',
+                'bump_launch', 'pause_menu'
+            ]
+            
+            for action in control_actions:
+                self.options.append({
+                    'type': 'control',
+                    'key': action,
+                    'label': CONTROL_DESCRIPTIONS[action],
+                    'rect': pygame.Rect(WIDTH//2 - 200, y_offset, 400, 40),
+                    'label_rect': pygame.Rect(WIDTH//2 - 200, y_offset - 25, 200, 25),
+                    'key_rect': pygame.Rect(WIDTH//2 + 10, y_offset, 190, 40)
+                })
+                y_offset += 60
+
+        # After rebuilding options, only reset nav_index if we were inside the list/buttons.
+        if self.nav_index > 0:
+            self.nav_index = 1  # first option row
+            self.selected_option = 0
+
+        # Recompute scrolling limits whenever the options list is (re)built.
+        if hasattr(self, 'back_button'):
+            self._update_scroll_limits()
+            self._ensure_option_visible()
+
+    # ---------------------------------------------------------------------
+    # Scrolling helpers
+    # ---------------------------------------------------------------------
+    def _update_scroll_limits(self):
+        """Recalculate max scroll based on content height in the controls section."""
+        if self.current_section != 'controls' or not self.options:
+            # No scrolling needed for other sections
+            self.max_scroll = 0
+            self.scroll_offset = 0
+            return
+
+        first_top = self.options[0]['rect'].top
+        last_bottom = self.options[-1]['rect'].bottom
+
+        # Visible vertical space between the options header and the Back button
+        visible_top = max(tab['rect'].bottom for tab in self.tabs.values()) + 60
+        if hasattr(self, 'back_button'):
+            visible_bottom = self.back_button['rect'].top - 40
+        else:
+            visible_bottom = HEIGHT - 140  # Fallback prior to buttons being created
+
+        visible_height = max(0, visible_bottom - visible_top)
+        content_height = last_bottom - first_top
+        self.max_scroll = max(0, content_height - visible_height)
+
+        # Clamp current offset inside new range
+        self.scroll_offset = max(0, min(self.scroll_offset, self.max_scroll))
+
+    def _ensure_option_visible(self):
+        """Adjust scroll so the selected option remains within the visible window."""
+        if self.current_section != 'controls':
+            return
+
+        # Only scroll when an actual option row (not tabs/back/reset) is selected
+        if not (1 <= self.nav_index <= len(self.options)):
+            return
+
+        option = self.options[self.selected_option]
+        option_top = option['rect'].top - self.scroll_offset
+        option_bottom = option['rect'].bottom - self.scroll_offset
+
+        visible_top = max(tab['rect'].bottom for tab in self.tabs.values()) + 60
+        visible_bottom = self.back_button['rect'].top - 40
+
+        if option_top < visible_top:
+            # Scroll up
+            self.scroll_offset = max(0, option['rect'].top - visible_top)
+        elif option_bottom > visible_bottom:
+            # Scroll down
+            self.scroll_offset = min(self.max_scroll, option['rect'].bottom - visible_bottom)
     
     def open_options(self):
         """Open the options menu."""
@@ -189,16 +338,21 @@ class OptionsMenu:
     
     def reset_to_defaults(self):
         """Reset all settings to their default values."""
-        self.settings = {
-            'music_volume': 0.75,
-            'sfx_volume': 0.75,
-            'music_muted': False,
-            'sfx_muted': False,
-            'screen_shake': True,
-            'show_fps': False
-        }
+        if self.current_section == 'audio':
+            self.settings['music_volume'] = 0.75
+            self.settings['sfx_volume'] = 0.75
+            self.settings['music_muted'] = False
+            self.settings['sfx_muted'] = False
+        elif self.current_section == 'video':
+            self.settings['screen_shake'] = True
+            self.settings['show_fps'] = False
+        elif self.current_section == 'controls':
+            # Reset control mappings
+            for action, key in DEFAULT_CONTROLS.items():
+                update_control_mapping(action, key)
+            self.settings['controls'] = DEFAULT_CONTROLS.copy()
+        
         self._apply_settings()
-        self._save_settings()
     
     def _apply_settings(self):
         """Apply current settings to the game systems."""
@@ -253,6 +407,37 @@ class OptionsMenu:
         mouse_released = False
         consumed_event = False
         
+        # Handle control remapping
+        if self.remapping_control:
+            for event in events:
+                if event.type == pygame.KEYDOWN:
+                    # Cancel remapping with ESC
+                    if event.key == pygame.K_ESCAPE:
+                        self.remapping_control = None
+                        consumed_event = True
+                    else:
+                        # Check for conflicts
+                        conflicts = []
+                        for action, key in CURRENT_CONTROLS.items():
+                            if key == event.key and action != self.remapping_control:
+                                conflicts.append(action)
+                        
+                        if conflicts:
+                            # Show warning but still allow the mapping
+                            print(f"[Options] Warning: Key {get_key_name(event.key)} already mapped to {conflicts}")
+                        
+                        # Update the control mapping
+                        update_control_mapping(self.remapping_control, event.key)
+                        self.remapping_control = None
+                        consumed_event = True
+                        
+                        # Save settings immediately
+                        self._save_settings()
+                        break
+            
+            # If we're remapping, consume all events
+            return True
+        
         for event in events:
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 mouse_clicked = True
@@ -265,34 +450,113 @@ class OptionsMenu:
                 consumed_event = True  # Consume all mouse releases when active
             elif event.type == pygame.KEYDOWN:
                 consumed_event = True  # Consume all key presses when active
+                from config import get_control_key
+                KEY_UP = get_control_key('right_paddle_up')
+                KEY_DOWN = get_control_key('right_paddle_down')
+                KEY_LEFT = get_control_key('bottom_paddle_left')
+                KEY_RIGHT = get_control_key('bottom_paddle_right')
+
                 if event.key == pygame.K_ESCAPE:
                     self.close_options()
-                elif event.key == pygame.K_UP:
-                    self.selected_option = (self.selected_option - 1) % (len(self.options) + 2)  # +2 for back and reset buttons
-                elif event.key == pygame.K_DOWN:
-                    self.selected_option = (self.selected_option + 1) % (len(self.options) + 2)  # +2 for back and reset buttons
-                elif event.key == pygame.K_LEFT:
-                    self._handle_left_arrow()
-                elif event.key == pygame.K_RIGHT:
-                    self._handle_right_arrow()
-                elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                    self._activate_selected()
+                elif event.key == KEY_UP:
+                    # Move selection up (tabs ← options ← back ← reset)
+                    total_rows = len(self.options) + 3  # tabs + options + back + reset
+                    self.nav_index = (self.nav_index - 1) % total_rows
+                    if self.nav_index == 0:
+                        # Highlight tabs but keep same current section
+                        pass
+                    elif 1 <= self.nav_index <= len(self.options):
+                        self.selected_option = self.nav_index - 1
+                    # Back/Reset handled by drawing
+                elif event.key == KEY_DOWN:
+                    total_rows = len(self.options) + 3
+                    self.nav_index = (self.nav_index + 1) % total_rows
+                    if 1 <= self.nav_index <= len(self.options):
+                        self.selected_option = self.nav_index - 1
+                elif event.key == KEY_LEFT:
+                    if self.nav_index == 0:
+                        # Move tab selection left
+                        sections = ['audio', 'video', 'controls']
+                        idx = sections.index(self.current_section)
+                        self.current_section = sections[(idx - 1) % len(sections)]
+                        self._setup_section_options()
+                    elif 1 <= self.nav_index <= len(self.options):
+                        option = self.options[self.selected_option]
+                        if option['type'] == 'control':
+                            # Start remapping
+                            self.remapping_control = option['key']
+                            self.remapping_start_time = pygame.time.get_ticks()
+                        else:
+                            self._handle_left_arrow()
+                    else:
+                        # Navigating between Back and Reset buttons
+                        if self.nav_index == len(self.options) + 2:  # Currently on Reset
+                            self.nav_index -= 1  # Move to Back
+                        # If already on Back, no action
+                elif event.key == KEY_RIGHT:
+                    if self.nav_index == 0:
+                        sections = ['audio', 'video', 'controls']
+                        idx = sections.index(self.current_section)
+                        self.current_section = sections[(idx + 1) % len(sections)]
+                        self._setup_section_options()
+                    elif 1 <= self.nav_index <= len(self.options):
+                        option = self.options[self.selected_option]
+                        if option['type'] == 'control':
+                            # Start remapping
+                            self.remapping_control = option['key']
+                            self.remapping_start_time = pygame.time.get_ticks()
+                        else:
+                            self._handle_right_arrow()
+                    else:
+                        # Navigating between Back and Reset buttons
+                        if self.nav_index == len(self.options) + 1:  # Currently on Back
+                            self.nav_index += 1  # Move to Reset
+                        # If already on Reset, no action
+                elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
+                    if self.nav_index == 0:
+                        # Nothing to activate on tabs
+                        pass
+                    elif 1 <= self.nav_index <= len(self.options):
+                        option = self.options[self.selected_option]
+                        if option['type'] == 'control':
+                            # Start remapping
+                            self.remapping_control = option['key']
+                            self.remapping_start_time = pygame.time.get_ticks()
+                        else:
+                            self._activate_selected()
+                    else:
+                        self._activate_selected()
+                elif event.key == pygame.K_TAB:
+                    # Tab between sections
+                    sections = ['audio', 'video', 'controls']
+                    current_index = sections.index(self.current_section)
+                    next_index = (current_index + 1) % len(sections)
+                    self.current_section = sections[next_index]
+                    self._setup_section_options()
+                    self.selected_option = 0
         
         # Handle mouse interactions
         if mouse_clicked:
             self._handle_mouse_click(mouse_pos)
+        elif mouse_released:
+            self.dragging_slider = None
         
         # Handle slider dragging
-        if self.mouse_held and self.dragging_slider is not None:
+        if self.dragging_slider is not None and self.mouse_held:
             self._handle_slider_drag(mouse_pos)
         
         # Update hover states
         self._update_hover_states(mouse_pos)
+
+        # Keep selected option in view after input handling
+        self._ensure_option_visible()
         
         return consumed_event
-    
+
     def _handle_mouse_click(self, mouse_pos):
-        """Handle mouse click events."""
+        """Handle mouse clicks on options."""
+        consumed_event = False
+        
         # Check back button
         if self.back_button['rect'].collidepoint(mouse_pos):
             self.close_options()
@@ -303,16 +567,30 @@ class OptionsMenu:
             self.reset_to_defaults()
             return
         
+        # Check tabs
+        for tab_name, tab_data in self.tabs.items():
+            if tab_data['rect'].collidepoint(mouse_pos):
+                self.current_section = tab_name
+                self._setup_section_options()
+                self.selected_option = 0
+                break
+        
+        # Convert mouse position to content coordinates (account for scrolling)
+        content_pos = (mouse_pos[0], mouse_pos[1] + self.scroll_offset)
+
         # Check options
         for i, option in enumerate(self.options):
-            if option['rect'].collidepoint(mouse_pos):
+            if option['rect'].collidepoint(content_pos):
+                self.selected_option = i
+                self.nav_index = i + 1  # Sync nav_index with clicked row
                 if option['type'] == 'toggle':
                     self.settings[option['key']] = not self.settings[option['key']]
                     self._apply_settings()
-                elif option['type'] == 'slider':
-                    self.dragging_slider = i
-                    self._handle_slider_drag(mouse_pos)
-    
+                elif option['type'] == 'control':
+                    self.remapping_control = option['key']
+                    self.remapping_start_time = pygame.time.get_ticks()
+                consumed_event = True
+
     def _handle_slider_drag(self, mouse_pos):
         """Handle slider dragging."""
         if self.dragging_slider is None:
@@ -328,101 +606,177 @@ class OptionsMenu:
         
         self.settings[option['key']] = new_value
         self._apply_settings()
-    
+
     def _handle_left_arrow(self):
-        """Handle left arrow key - decrease slider values, toggle switches, or navigate buttons."""
+        """Handle left arrow key press."""
         if self.selected_option < len(self.options):
             option = self.options[self.selected_option]
             if option['type'] == 'slider':
-                # Decrease slider value by 5%
-                current_value = self.settings[option['key']]
-                new_value = max(0.0, current_value - 0.05)
-                self.settings[option['key']] = new_value
+                self.settings[option['key']] = max(0.0, self.settings[option['key']] - 0.05)
                 self._apply_settings()
             elif option['type'] == 'toggle':
-                # Toggle the switch
                 self.settings[option['key']] = not self.settings[option['key']]
                 self._apply_settings()
-        elif self.selected_option == len(self.options) + 1:  # Reset button selected
-            # Move to Back button
-            self.selected_option = len(self.options)
 
     def _handle_right_arrow(self):
-        """Handle right arrow key - increase slider values, toggle switches, or navigate buttons."""
+        """Handle right arrow key press."""
         if self.selected_option < len(self.options):
             option = self.options[self.selected_option]
             if option['type'] == 'slider':
-                # Increase slider value by 5%
-                current_value = self.settings[option['key']]
-                new_value = min(1.0, current_value + 0.05)
-                self.settings[option['key']] = new_value
+                self.settings[option['key']] = min(1.0, self.settings[option['key']] + 0.05)
                 self._apply_settings()
             elif option['type'] == 'toggle':
-                # Toggle the switch
                 self.settings[option['key']] = not self.settings[option['key']]
                 self._apply_settings()
-        elif self.selected_option == len(self.options):  # Back button selected
-            # Move to Reset button
-            self.selected_option = len(self.options) + 1
 
     def _activate_selected(self):
-        """Activate the currently selected option with keyboard."""
-        if self.selected_option == len(self.options):  # Back button
-            self.close_options()
-        elif self.selected_option == len(self.options) + 1:  # Reset button
-            self.reset_to_defaults()
-        elif self.selected_option < len(self.options):
+        """Activate the currently selected option."""
+        # Determine action based on nav_index instead of selected_option so
+        # Back / Reset are handled correctly even when they were never part of
+        # the options list.
+        if 1 <= self.nav_index <= len(self.options):
             option = self.options[self.selected_option]
             if option['type'] == 'toggle':
                 self.settings[option['key']] = not self.settings[option['key']]
                 self._apply_settings()
-    
+            elif option['type'] == 'control':
+                self.remapping_control = option['key']
+                self.remapping_start_time = pygame.time.get_ticks()
+        elif self.nav_index == len(self.options) + 1:
+            # Back button
+            self.close_options()
+        elif self.nav_index == len(self.options) + 2:
+            # Reset button
+            self.reset_to_defaults()
+
     def _update_hover_states(self, mouse_pos):
-        """Update hover states for UI elements."""
+        """Update hover states for all interactive elements."""
         self.back_button['hover'] = self.back_button['rect'].collidepoint(mouse_pos)
         self.reset_button['hover'] = self.reset_button['rect'].collidepoint(mouse_pos)
-    
+        for tab_name, tab_data in self.tabs.items():
+            tab_data['hover'] = tab_data['rect'].collidepoint(mouse_pos)
+
     def draw(self, surface):
         """Draw the options menu."""
         if not self.active:
             return
         
-        # Draw background
         surface.blit(self.bg, (0, 0))
         
-        # Draw title
-        shadow = self.title_surf.copy()
-        shadow.fill((0, 0, 0, 255), special_flags=pygame.BLEND_RGBA_MULT)
+        # Draw title with shadow
+        shadow = self._render_outline("Options", self.title_font, (0, 0, 0), (0, 0, 0), 0)
         surface.blit(shadow, self.title_rect.move(3, 3))
         surface.blit(self.title_surf, self.title_rect)
         
+        # Draw tabs
+        for tab_name, tab_data in self.tabs.items():
+            selected = (tab_name == self.current_section)
+            hover = tab_data.get('hover', False)
+            
+            # Draw tab background
+            if selected:
+                bg_color = (80, 80, 80)
+                border_color = YELLOW
+                text_color = YELLOW
+            elif hover:
+                bg_color = (60, 60, 60)
+                border_color = WHITE
+                text_color = WHITE
+            else:
+                bg_color = (40, 40, 40)
+                border_color = (100, 100, 100)
+                text_color = WHITE
+            
+            # Draw tab background and border
+            pygame.draw.rect(surface, bg_color, tab_data['rect'])
+            pygame.draw.rect(surface, border_color, tab_data['rect'], 2)
+            
+            # Draw tab label
+            tab_surf = self._render_outline(tab_data['label'], self.btn_font, text_color, (0, 0, 0), 1)
+            tab_rect = tab_surf.get_rect(center=tab_data['rect'].center)
+            surface.blit(tab_surf, tab_rect)
+        
         # Draw options
         for i, option in enumerate(self.options):
-            selected = (i == self.selected_option)
+            selected = (1 <= self.nav_index <= len(self.options) and (i == self.selected_option))
             self._draw_option(surface, option, selected)
         
         # Draw back and reset buttons
         self._draw_back_button(surface)
         self._draw_reset_button(surface)
-    
-    def _draw_option(self, surface, option, selected):
-        """Draw a single option element, centered on the screen."""
-        label_color = YELLOW if selected else WHITE
-        # Center label
-        label_surf = self._render_outline(option['label'], self.label_font, label_color, (0, 0, 0), 1)
-        label_rect = label_surf.get_rect(center=(WIDTH // 2, option['label_rect'].centery))
-        surface.blit(label_surf, label_rect)
+        
+        # Draw remapping indicator
+        if self.remapping_control:
+            elapsed = pygame.time.get_ticks() - self.remapping_start_time
+            if elapsed < 3000:  # Show for 3 seconds
+                text = f"Press a key for {CONTROL_DESCRIPTIONS[self.remapping_control]}..."
+                if elapsed // 500 % 2:  # Blink every 500ms
+                    text_surf = self._render_outline(text, self.label_font, YELLOW, (0, 0, 0), 1)
+                    text_rect = text_surf.get_rect(center=(WIDTH // 2, HEIGHT - 150))
+                    surface.blit(text_surf, text_rect)
+            else:
+                # Timeout - cancel remapping
+                self.remapping_control = None
 
+    def _draw_option(self, surface, option, selected):
+        """Draw an individual option based on its type."""
+        label_color = YELLOW if selected else WHITE
+
+        # Apply vertical scroll offset so the list can scroll
+        y_offset = -self.scroll_offset
+ 
         if option['type'] == 'slider':
-            # Center slider
+            # Draw slider label
+            label_surf = self._render_outline(option['label'], self.label_font, label_color, (0, 0, 0), 1)
+            label_rect = label_surf.get_rect(center=(WIDTH // 2, option['label_rect'].centery + y_offset))
+            surface.blit(label_surf, label_rect)
+            
+            # Draw slider
             slider_rect = option['slider_rect'].copy()
-            slider_rect.centerx = WIDTH // 2
+            slider_rect.y += y_offset
             self._draw_slider(surface, option, selected, slider_rect)
         elif option['type'] == 'toggle':
-            # Center toggle
+            # Draw toggle label
+            label_surf = self._render_outline(option['label'], self.label_font, label_color, (0, 0, 0), 1)
+            label_rect = label_surf.get_rect(center=(WIDTH // 2, option['label_rect'].centery + y_offset))
+            surface.blit(label_surf, label_rect)
+            
+            # Draw toggle
             toggle_rect = option['rect'].copy()
             toggle_rect.centerx = WIDTH // 2
+            toggle_rect.y += y_offset
             self._draw_toggle(surface, option, selected, toggle_rect)
+        elif option['type'] == 'control':
+            # Draw control label
+            control_label_surf = self._render_outline(option['label'], self.label_font, label_color, (0, 0, 0), 1)
+            label_col_x = WIDTH // 2 - 260
+            control_label_rect = control_label_surf.get_rect(midleft=(label_col_x, option['label_rect'].centery + y_offset))
+            surface.blit(control_label_surf, control_label_rect)
+            
+            # Draw key display
+            from config import get_control_key
+            key_code = get_control_key(option['key'])
+            key_name = get_key_name(key_code)
+            
+            # Highlight if being remapped
+            if self.remapping_control == option['key']:
+                key_color = YELLOW
+                key_name = "Press key..."
+            else:
+                key_color = WHITE
+            
+            key_surf = self._render_outline(key_name, self.key_font, key_color, (0, 0, 0), 1)
+            key_box_width = key_surf.get_width() + 30
+            key_rect = key_surf.get_rect()
+            key_rect.midright = (WIDTH // 2 + 260, option['rect'].centery + y_offset)
+            bg_rect = pygame.Rect(0, 0, key_box_width, key_rect.height + 10)
+            bg_rect.center = key_rect.center
+            
+            # Draw key background
+            pygame.draw.rect(surface, (40, 40, 40), bg_rect)
+            pygame.draw.rect(surface, YELLOW if selected else WHITE, bg_rect, 2)
+            
+            surface.blit(key_surf, key_rect)
 
     def _draw_slider(self, surface, option, selected, slider_rect=None):
         """Draw a volume slider, centered if slider_rect is provided."""
@@ -499,7 +853,7 @@ class OptionsMenu:
     def _draw_back_button(self, surface):
         """Draw the back button."""
         button = self.back_button
-        selected = (self.selected_option == len(self.options))
+        selected = (self.nav_index == len(self.options) + 1)
         
         # Colors
         bg_color = (110, 110, 110) if (button['hover'] or selected) else (60, 60, 60)
@@ -518,7 +872,7 @@ class OptionsMenu:
     def _draw_reset_button(self, surface):
         """Draw the reset button."""
         button = self.reset_button
-        selected = (self.selected_option == len(self.options) + 1)  # Reset is after back button
+        selected = (self.nav_index == len(self.options) + 2)  # Reset is after back button
         
         # Colors
         bg_color = (110, 110, 110) if (button['hover'] or selected) else (60, 60, 60)

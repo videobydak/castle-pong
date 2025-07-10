@@ -1,5 +1,6 @@
 import random
 import builtins as _builtins
+import pygame
 
 # --- Constants ---
 WIDTH, HEIGHT = 1280, 900
@@ -41,7 +42,109 @@ CANNON_SPEED = 0.002  # radians per ms – how fast the barrels swing
 PADDLE_MARGIN = int(30 * SCALE)  # gap between paddles and arena edge 
 # Dedicated gap for the *bottom* paddle so it clears the player wall
 # (double the regular margin plus 10 px → 50 px).
-BOTTOM_PADDLE_MARGIN = PADDLE_MARGIN * 2 + int(10 * SCALE) 
+BOTTOM_PADDLE_MARGIN = PADDLE_MARGIN * 2 + int(10 * SCALE)
+
+# --- Control Settings ---
+# Default key bindings for game controls
+DEFAULT_CONTROLS = {
+    'bottom_paddle_left': pygame.K_LEFT,
+    'bottom_paddle_right': pygame.K_RIGHT,
+    'top_paddle_left': pygame.K_a,
+    'top_paddle_right': pygame.K_d,
+    'left_paddle_up': pygame.K_w,
+    'left_paddle_down': pygame.K_s,
+    'right_paddle_up': pygame.K_UP,
+    'right_paddle_down': pygame.K_DOWN,
+    'bump_launch': pygame.K_SPACE,
+    'pause_menu': pygame.K_ESCAPE
+}
+
+# Current control mappings (can be modified by options menu)
+# This will be loaded from settings file or use defaults
+CURRENT_CONTROLS = DEFAULT_CONTROLS.copy()
+
+# Control action descriptions for the UI
+CONTROL_DESCRIPTIONS = {
+    'bottom_paddle_left': 'Bottom Paddle Left',
+    'bottom_paddle_right': 'Bottom Paddle Right',
+    'top_paddle_left': 'Top Paddle Left',
+    'top_paddle_right': 'Top Paddle Right',
+    'left_paddle_up': 'Left Paddle Up',
+    'left_paddle_down': 'Left Paddle Down',
+    'right_paddle_up': 'Right Paddle Up',
+    'right_paddle_down': 'Right Paddle Down',
+    'bump_launch': 'Bump/Launch',
+    'pause_menu': 'Pause Menu'
+}
+
+# Helper function to get key name for display
+def get_key_name(key_code):
+    """Get a readable name for a pygame key code."""
+    key_name = pygame.key.name(key_code)
+    # Convert some common key names to more readable format
+    if key_name == 'left':
+        return '←'
+    elif key_name == 'right':
+        return '→'
+    elif key_name == 'up':
+        return '↑'
+    elif key_name == 'down':
+        return '↓'
+    elif key_name == 'space':
+        return 'SPACE'
+    elif key_name == 'escape':
+        return 'ESC'
+    elif key_name == 'return':
+        return 'ENTER'
+    elif key_name == 'backspace':
+        return 'BACKSPACE'
+    elif key_name == 'tab':
+        return 'TAB'
+    elif key_name == 'left shift':
+        return 'SHIFT'
+    elif key_name == 'right shift':
+        return 'SHIFT'
+    elif key_name == 'left ctrl':
+        return 'CTRL'
+    elif key_name == 'right ctrl':
+        return 'CTRL'
+    elif key_name == 'left alt':
+        return 'ALT'
+    elif key_name == 'right alt':
+        return 'ALT'
+    else:
+        return key_name.upper()
+
+# Helper function to update control mappings
+def update_control_mapping(action, new_key):
+    """Update a control mapping and save to settings."""
+    global CURRENT_CONTROLS
+    CURRENT_CONTROLS[action] = new_key
+
+# Helper function to get control key for an action
+def get_control_key(action):
+    """Get the current key mapping for a control action."""
+    return CURRENT_CONTROLS.get(action, DEFAULT_CONTROLS.get(action))
+
+# Helper function to check if a key is pressed for a specific action
+def is_control_pressed(action, keys):
+    """Check if the key for a specific action is currently pressed."""
+    key = get_control_key(action)
+    return keys[key] if key else False
+
+# Helper function to check for control conflicts
+def has_control_conflicts():
+    """Check if any control keys are mapped to the same key."""
+    used_keys = {}
+    conflicts = []
+    
+    for action, key in CURRENT_CONTROLS.items():
+        if key in used_keys:
+            conflicts.append((action, used_keys[key]))
+        else:
+            used_keys[key] = action
+    
+    return conflicts
 
 # Universal potion color palette
 POTION_COLORS = {
@@ -86,7 +189,7 @@ SPIN_DAMPING  = 0.995  # Per-frame damping applied to angular velocity
 SPIN_TRANSFER = .1    # Fraction of paddle tangential velocity converted into spin on hit
 LINEAR_TRANSFER = 0.7  # Fraction of paddle tangential velocity added to linear velocity on hit
 
-DEBUG = True  # Set to False to disable debug console logs
+DEBUG = False  # Set to False to disable debug console logs
 
 # --- Debug Settings ---
 DEBUG_STARTING_COINS = 1000000  # Set to a positive number to start with that many coins (only works when DEBUG = True)

@@ -1,5 +1,5 @@
 import pygame, sys, os, random, math
-from config import WIDTH, HEIGHT, WHITE, YELLOW
+from config import WIDTH, HEIGHT, WHITE, YELLOW, get_key_name, get_control_key
 from utils import generate_grass
 
 
@@ -101,13 +101,13 @@ class TutorialOverlay:
         key_nav = False
         for e in events:
             if e.type == pygame.KEYDOWN:
-                if e.key == pygame.K_UP:
+                if e.key == get_control_key('right_paddle_up'):
                     self.selected_index = (self.selected_index - 1) % len(self.buttons)
                     key_nav = True
-                elif e.key == pygame.K_DOWN:
+                elif e.key == get_control_key('right_paddle_down'):
                     self.selected_index = (self.selected_index + 1) % len(self.buttons)
                     key_nav = True
-                elif e.key == pygame.K_SPACE or e.key == pygame.K_RETURN:
+                elif e.key in (pygame.K_SPACE, pygame.K_RETURN):
                     self.buttons[self.selected_index]["callback"]()
                     key_nav = True
         

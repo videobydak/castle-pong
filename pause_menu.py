@@ -1,5 +1,5 @@
 import pygame, sys, os
-from config import WIDTH, HEIGHT, WHITE, YELLOW
+from config import WIDTH, HEIGHT, WHITE, YELLOW, get_control_key
 
 class PauseMenu:
     """Simple in-game pause interface activated with ESC."""
@@ -229,10 +229,10 @@ class PauseMenu:
         for e in events:
             if e.type == pygame.KEYDOWN:
                 consumed_event = True
-                if e.key == pygame.K_UP:
+                if e.key == get_control_key('right_paddle_up'):
                     self.selected_index = (self.selected_index - 1) % len(self.buttons)
                     key_nav = True
-                elif e.key == pygame.K_DOWN:
+                elif e.key == get_control_key('right_paddle_down'):
                     self.selected_index = (self.selected_index + 1) % len(self.buttons)
                     key_nav = True
                 elif e.key in (pygame.K_SPACE, pygame.K_RETURN):

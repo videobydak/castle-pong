@@ -1,6 +1,6 @@
 import pygame, random, math
 from typing import Dict, List, Optional, Tuple, Any
-from config import WIDTH, HEIGHT, SCALE
+from config import WIDTH, HEIGHT, SCALE, WHITE, YELLOW, get_control_key
 import coin
 
 # -----------------------------------------------------------------------------
@@ -254,40 +254,34 @@ class Store:
             if event.key == pygame.K_ESCAPE:
                 self.close_store()
                 return True
-            elif event.key == pygame.K_LEFT or event.key == pygame.K_a:
+            elif event.key == get_control_key('bottom_paddle_left'):
                 self.current_tab = (self.current_tab - 1) % len(self.tab_names)
                 self.scroll_offset = 0
                 self.selected_item = 0
                 return True
-            elif event.key == pygame.K_RIGHT or event.key == pygame.K_d:
+            elif event.key == get_control_key('bottom_paddle_right'):
                 self.current_tab = (self.current_tab + 1) % len(self.tab_names)
                 self.scroll_offset = 0
                 self.selected_item = 0
                 return True
-            elif event.key == pygame.K_UP or event.key == pygame.K_w:
+            elif event.key == get_control_key('right_paddle_up'):
                 if self.selected_item > 0:
                     self.selected_item -= 1
                 else:
                     current_upgrades = self.upgrades[self.tab_names[self.current_tab]]
-                    # If at top, go to previous page if possible, otherwise wrap to last page
                     if self.scroll_offset > 0:
                         self.scroll_offset -= 1
                         self.selected_item = self.items_per_page - 1
                     else:
-                        # Jump to the last page
                         max_pages = (len(current_upgrades) - 1) // self.items_per_page
                         self.scroll_offset = max_pages
                         self.selected_item = min(self.items_per_page - 1, len(current_upgrades) - 1 - (max_pages * self.items_per_page))
                 return True
-            elif event.key == pygame.K_DOWN or event.key == pygame.K_s:
+            elif event.key == get_control_key('right_paddle_down'):
                 current_upgrades = self.upgrades[self.tab_names[self.current_tab]]
-                if self.selected_item < self.items_per_page - 1:
-                    # Check if there's an item at the next position
-                    start_index = self.scroll_offset * self.items_per_page
-                    if start_index + self.selected_item + 1 < len(current_upgrades):
-                        self.selected_item += 1
+                if self.selected_item < min(self.items_per_page - 1, len(current_upgrades) - 1 - (self.scroll_offset * self.items_per_page)):
+                    self.selected_item += 1
                 else:
-                    # If at bottom of current page, go to next page if possible, otherwise wrap to first page
                     max_pages = (len(current_upgrades) - 1) // self.items_per_page
                     if self.scroll_offset < max_pages:
                         self.scroll_offset += 1
