@@ -2068,7 +2068,7 @@ while running:
             elif wave_completion_time > 300000:  # 5 minutes max
                 wave_completion_time = 300000
             
-            end_of_wave_screen.show(score, wave_completion_time, wave_start_coins)
+            end_of_wave_screen.show(score, wave_completion_time, wave_start_coins, wave)
             wave_transition['eos_shown'] = True
         
         # Check if End of Wave Screen is complete

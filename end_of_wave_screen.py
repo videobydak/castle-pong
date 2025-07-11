@@ -5,6 +5,8 @@ import os
 from config import WIDTH, HEIGHT, WHITE, SCALE, YELLOW, get_control_key
 from typing import Optional, Dict, Any
 from coin import get_coin_count
+import leaderboard  # Local high-score & Google Sheets submission
+from name_prompt import NamePrompt
 
 
 class EndOfWaveScreen:
@@ -90,6 +92,9 @@ class EndOfWaveScreen:
         
         self.completion_time = 0
         
+        self.name_prompt = None  # Will be NamePrompt when needed
+        self.leaderboard_thread_started = False
+
         # Buttons
         self.continue_button = None
         self.shop_button = None
@@ -251,7 +256,7 @@ class EndOfWaveScreen:
         shop_rect = shop_text.get_rect(center=self.shop_button.center)
         screen.blit(shop_text, shop_rect)
     
-    def show(self, score: int, wave_completion_time_ms: int, coins_at_wave_start: int):
+    def show(self, score: int, wave_completion_time_ms: int, coins_at_wave_start: int, wave_number: Optional[int] = None):
         """Show the End of Wave Screen with given data."""
         self.active = True
         self.state = 'animating'
@@ -269,7 +274,9 @@ class EndOfWaveScreen:
         self.completion_time = wave_completion_time_ms / 1000.0  # Convert to seconds
         self.time_bonus_multiplier = self._get_time_bonus_multiplier(self.completion_time)
         self.total_score = int(score * self.time_bonus_multiplier)
-        
+
+        # Store wave number for later leaderboard submission
+        self._wave_number = wave_number
         current_coins = get_coin_count()
         self.coins_collected = max(0, current_coins - coins_at_wave_start)
         self.score_bonus_multiplier = self._get_score_bonus_multiplier(score)
@@ -380,6 +387,23 @@ class EndOfWaveScreen:
         
         # Update heading fade-ins
         self._update_heading_animations(dt_ms)
+
+        # Handle name prompt lifecycle
+        if self.name_prompt is not None:
+            if self.name_prompt.done and not self.leaderboard_thread_started:
+                # Save new name and submit to leaderboard
+                if self.name_prompt.name:
+                    leaderboard.set_player_name(self.name_prompt.name)
+                if self._wave_number is not None:
+                    import threading
+                    threading.Thread(target=leaderboard.handle_end_of_wave, args=(self.total_score, self._wave_number), daemon=True).start()
+                self.leaderboard_thread_started = True
+                # Automatically continue past End-of-Wave screen
+                self.selected_action = 'continue'
+                self.state = 'complete'
+            # While prompt active, we don't progress animations further
+            if self.name_prompt.active:
+                return
     
     def _is_current_step_complete(self) -> bool:
         """Check if the current sequence step is complete."""
@@ -423,6 +447,12 @@ class EndOfWaveScreen:
             # Create buttons for user interaction and reset selection
             self.selected_button = 0
             self._create_buttons()
+            # If this is a personal best, prompt for name before submitting
+            # Submission will occur later after name prompt finishes.
+            if leaderboard.is_new_high(self.total_score):
+                current_name = leaderboard.get_player_name()
+                self.name_prompt = NamePrompt(current_name)
+                self.leaderboard_thread_started = False
     
     def _show_heading_and_animate(self, heading: str, value_key: str):
         """Show a heading and start animating its value."""
@@ -555,6 +585,9 @@ class EndOfWaveScreen:
         
         # Draw buttons
         self._draw_buttons(screen)
+        # Draw name prompt overlay if active
+        if self.name_prompt is not None:
+            self.name_prompt.draw(screen)
     
     def _get_value_text(self, heading_index: int) -> str:
         """Get the formatted value text for a heading."""
@@ -582,6 +615,11 @@ class EndOfWaveScreen:
         if not self.active:
             return False
         
+        # First give chance to name prompt
+        if self.name_prompt is not None and self.name_prompt.active:
+            if self.name_prompt.handle_event(event):
+                return True
+
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:  # Left click
                 if self.state == 'waiting_for_input':
@@ -635,7 +673,13 @@ class EndOfWaveScreen:
                     
                     self._stop_all_sounds()
                     self._create_buttons()  # Ensure buttons are created for interaction
-                    
+
+                    # If this score is a new personal best, show the name prompt now
+                    if leaderboard.is_new_high(self.total_score) and self.name_prompt is None:
+                        current_name = leaderboard.get_player_name()
+                        self.name_prompt = NamePrompt(current_name)
+                        self.leaderboard_thread_started = False
+
                     return True
         
         return False 

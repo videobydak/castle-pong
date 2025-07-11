@@ -42,11 +42,19 @@ class TutorialOverlay:
 
         # Buttons configuration ------------------------------------------------
         self.buttons = [
-            {"label": "Play",    "callback": self._on_play},
-            {"label": "Options", "callback": self._on_options},
-            {"label": "Quit",    "callback": self._on_quit},
+            {"label": "Play",        "callback": self._on_play},
+            {"label": "Leaderboard", "callback": self._on_leaderboard},
+            {"label": "Options",     "callback": self._on_options},
+            {"label": "Quit",        "callback": self._on_quit},
         ]
         self._layout_buttons()
+
+        # Leaderboard mode state -------------------------------------
+        self.mode = "menu"  # "menu" or "leaderboard"
+        self.board_wave = 1
+        self.board_rows = []  # Fetched leaderboard rows
+        self.board_scroll = 0
+        self.last_board_fetch = 0
 
         # ------------------------------------------------------------------
         # Scrolling grass background (re-uses game grass tile) -------------
@@ -87,6 +95,22 @@ class TutorialOverlay:
     def update(self, events):
         if not self.active:
             return
+
+        if self.mode == "leaderboard":
+            # Handle simple back navigation
+            for e in events:
+                if e.type == pygame.KEYDOWN and e.key in (pygame.K_ESCAPE, pygame.K_BACKSPACE):
+                    self.mode = "menu"
+                    return
+                elif e.type == pygame.KEYDOWN and e.key == pygame.K_LEFT:
+                    self.board_wave = max(1, self.board_wave - 1)
+                    self._refresh_board()
+                    return
+                elif e.type == pygame.KEYDOWN and e.key == pygame.K_RIGHT:
+                    self.board_wave += 1
+                    self._refresh_board()
+                    return
+            return  # Leaderboard mode doesn't update menu interactions
         
         # Update loading spinner if in loading state
         if self.loading:
@@ -137,6 +161,9 @@ class TutorialOverlay:
 
     def draw(self, surface: pygame.Surface):
         if not self.active:
+            return
+        if self.mode == "leaderboard":
+            self._draw_leaderboard(surface)
             return
         # ----------------------------------------------------------
         #  Scrolling grass background
@@ -286,6 +313,41 @@ class TutorialOverlay:
 
         if getattr(_main, 'start_random_wave_music', None):
             _main.start_random_wave_music()
+
+    def _on_leaderboard(self):
+        """Activate leaderboard view."""
+        self.mode = "leaderboard"
+        self.board_wave = 1
+        self._refresh_board()
+
+    def _refresh_board(self):
+        import time, leaderboard as lb
+        self.board_rows = lb.get_top_scores(self.board_wave, limit=20)
+        self.last_board_fetch = time.time()
+
+    def _draw_leaderboard(self, surface: pygame.Surface):
+        # Simple centered text list
+        bg = pygame.Surface((WIDTH, HEIGHT))
+        bg.fill((0, 0, 0))
+        bg.set_alpha(200)
+        surface.blit(bg, (0, 0))
+
+        title = self._render_outline(f"Wave {self.board_wave} – Top Scores", self.btn_font, YELLOW, (0, 0, 0), 2)
+        rect = title.get_rect(center=(WIDTH // 2, 120))
+        surface.blit(title, rect)
+
+        y = rect.bottom + 20
+        rank_font = self._load_pixel_font(28)
+        for idx, row in enumerate(self.board_rows, 1):
+            txt = rank_font.render(f"{idx:2}. {row['name'][:12]:12}  {row['score']}", True, WHITE)
+            txt_rect = txt.get_rect(center=(WIDTH // 2, y))
+            surface.blit(txt, txt_rect)
+            y += 32
+
+        hint_font = self._load_pixel_font(18)
+        hint = hint_font.render("←/→ wave   ESC to back", True, WHITE)
+        hint_rect = hint.get_rect(center=(WIDTH // 2, HEIGHT - 60))
+        surface.blit(hint, hint_rect)
 
     # --- Legacy gradient generator retained for reference, unused now ---
     def _create_background(self):
