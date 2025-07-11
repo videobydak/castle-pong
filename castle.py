@@ -17,6 +17,7 @@ from crack_demo import create_crack_animator
 REPAIR_DELAY = 3000   # wait before repair starts (ms)
 REPAIR_TIME  = 15000  # duration of rebuild animation (ms)
 DAMAGE_ATTRACT_TIME = 4000  # ms – cannons flock toward recent breaches
+CANNON_RESPAWN_DELAY = 3000  # wait before cannon can respawn (ms)
 
 # Maximum number of persistent debris pieces allowed before oldest ones begin fading out
 MAX_DEBRIS_COUNT = 1000  # tuned to keep performance reasonable
@@ -374,6 +375,9 @@ class Castle:
         # cannons now drive their own decisions.
         self.shoot_event = pygame.USEREVENT+1
         pygame.time.set_timer(self.shoot_event, 0)
+        
+        # Initialize destroyed cannons tracking system
+        self.destroyed_cannons = []  # List of destroyed cannon info with respawn timing
 
         # ball preview cycling order
         # Make power-ups spawn far less frequently by weighting the
@@ -566,6 +570,13 @@ class Castle:
             attached_cannons = [c for c in self.cannons if c.block == block]
             for c in attached_cannons:
                 self.cannons.remove(c)
+                # Add cannon to destroyed cannons pool with respawn timing
+                self.destroyed_cannons.append({
+                    'side': c.side,
+                    'preview_idx': c.preview_idx,
+                    'destroyed_time': pygame.time.get_ticks(),
+                    'level': self.level
+                })
             
             # For tier 3+ blocks (value 3+), implement tiered rebuilding
             # Tier 1 blocks (value 2) rebuild normally as tier 1
@@ -575,12 +586,6 @@ class Castle:
                 self.destroyed_blocks[key] = {
                     'time': pygame.time.get_ticks(),
                     'order': order,
-                    'had_cannons': [
-                        {
-                            'side': c.side,
-                            'preview_idx': c.preview_idx
-                        } for c in attached_cannons
-                    ],
                     'original_tier': original_tier,
                     'current_rebuild_tier': rebuild_tier,
                     'tiered_rebuild': True
@@ -589,13 +594,7 @@ class Castle:
                 # Tier 1 blocks (value 2) rebuild normally as tier 1
                 self.destroyed_blocks[key] = {
                     'time': pygame.time.get_ticks(),
-                    'order': order,
-                    'had_cannons': [
-                        {
-                            'side': c.side,
-                            'preview_idx': c.preview_idx
-                        } for c in attached_cannons
-                    ]
+                    'order': order
                 }
             
             # Recompute perimeter tracks as the layout changed
@@ -691,6 +690,13 @@ class Castle:
         attached_cannons = [c for c in self.cannons if c.block == block]
         for c in attached_cannons:
             self.cannons.remove(c)
+            # Add cannon to destroyed cannons pool with respawn timing
+            self.destroyed_cannons.append({
+                'side': c.side,
+                'preview_idx': c.preview_idx,
+                'destroyed_time': pygame.time.get_ticks(),
+                'level': self.level
+            })
 
         # Get the original tier of this block
         # Use original_block_tiers if available, otherwise fall back to current tier
@@ -710,12 +716,6 @@ class Castle:
                 self.destroyed_blocks[key] = {
                     'time': pygame.time.get_ticks(),
                     'order': order,
-                    'had_cannons': [
-                        {
-                            'side': c.side,
-                            'preview_idx': c.preview_idx
-                        } for c in attached_cannons
-                    ],
                     'original_tier': original_tier,
                     'current_rebuild_tier': rebuild_tier,
                     'tiered_rebuild': True
@@ -724,13 +724,7 @@ class Castle:
                 # Tier 1 blocks (value 2) rebuild normally as tier 1
                 self.destroyed_blocks[key] = {
                     'time': pygame.time.get_ticks(),
-                    'order': order,
-                    'had_cannons': [
-                        {
-                            'side': c.side,
-                            'preview_idx': c.preview_idx
-                        } for c in attached_cannons
-                    ]
+                    'order': order
                 }
         else:
             # Block has already been rebuilt once, don't rebuild again

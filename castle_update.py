@@ -6,6 +6,7 @@ from cannon import Cannon
 # Constants moved from castle.py
 REPAIR_DELAY = 3000   # wait before repair starts (ms)
 REPAIR_TIME  = 15000  # duration of rebuild animation (ms)
+CANNON_RESPAWN_DELAY = 3000  # wait before cannon can respawn (ms)
 MAX_DEBRIS_COUNT = 1000  # tuned to keep performance reasonable
 CANNON_SLIDE_SPEED = 0.18  # px / ms – tuned for readable but still threatening movement
 CANNON_EASE_DISTANCE = 4.0  # pixels – begin ease-in when within this many pixels of waypoint
@@ -43,6 +44,70 @@ def get_wall_targeting_area(wave_level):
 _CANNON_MOVE_SHRINK_MS = 600  # shrink/spin-up phase duration (slowed)
 _CANNON_MOVE_GROW_MS   = 600  # grow/spin-down phase duration (slowed)
 _CANNON_MOVE_TRAVEL_MS = 900  # travel phase duration (new)
+
+def _get_respawnable_cannon(castle, now):
+    """
+    Check if there's a destroyed cannon ready to respawn (after 3-second delay).
+    Returns the cannon info if available, None otherwise.
+    """
+    if not hasattr(castle, 'destroyed_cannons') or not castle.destroyed_cannons:
+        return None
+    
+    # Check if we're already at max cannons for this wave
+    max_cannons_wave = castle._max_cannons_for_wave(castle.level)
+    if len(castle.cannons) >= max_cannons_wave:
+        return None
+    
+    # Find first cannon that's ready to respawn
+    for cannon_info in castle.destroyed_cannons:
+        if now - cannon_info['destroyed_time'] >= CANNON_RESPAWN_DELAY:
+            return cannon_info
+    
+    return None
+
+def _spawn_cannon_on_block(castle, new_block, cannon_info, now):
+    """
+    Spawn a cannon from the destroyed cannons pool onto a rebuilding block.
+    """
+    # Choose a random side for the new cannon (since it can spawn on any block)
+    available_sides = ['top', 'bottom', 'left', 'right']
+    side = random.choice(available_sides)
+    
+    # Determine cannon position and direction based on side
+    if side == 'top':
+        cpos = pygame.Vector2(new_block.centerx, new_block.top - CANNON_GAP)
+        bdir = pygame.Vector2(0, -1)
+    elif side == 'bottom':
+        cpos = pygame.Vector2(new_block.centerx, new_block.bottom + CANNON_GAP)
+        bdir = pygame.Vector2(0, 1)
+    elif side == 'left':
+        cpos = pygame.Vector2(new_block.left - CANNON_GAP, new_block.centery)
+        bdir = pygame.Vector2(-1, 0)
+    else:  # right
+        cpos = pygame.Vector2(new_block.right + CANNON_GAP, new_block.centery)
+        bdir = pygame.Vector2(1, 0)
+    
+    # Create new cannon
+    new_cannon = Cannon(
+        block=new_block,
+        side=side,
+        pos=cpos,
+        rail_info=castle.rail_info,
+        total_shots_ref=lambda: castle.total_shots,
+        shooting_enabled_ref=lambda: castle.shooting_enabled,
+        smoke_particles_ref=castle.smoke_particles,
+        level=castle.level
+    )
+    new_cannon.base_dir = bdir
+    new_cannon.preview_idx = cannon_info.get('preview_idx', random.randint(0, 2))
+    new_cannon.born = now
+    new_cannon.initial_decision_pending = True
+    
+    castle.cannons.append(new_cannon)
+    new_cannon.rail_id, new_cannon.rail_idx = castle.rail_info.nearest_node((new_block.x, new_block.y))
+    
+    # Remove cannon from destroyed pool
+    castle.destroyed_cannons.remove(cannon_info)
 
 def update_castle(castle, dt_ms, player_score=0, paddles=None, player_wall=None, balls=None):
     # Normalise *paddles* input ---------------------------------------
@@ -826,41 +891,10 @@ def update_castle(castle, dt_ms, player_score=0, paddles=None, player_wall=None,
                         # Layout changed – rebuild perimeter tracks
                         castle._build_perimeter_track()
                         
-                        # Rebuild all cannons that were attached to this block
-                        for cinfo in destroyed_at.get('had_cannons', []):
-                            side = cinfo['side']
-
-                            # determine cannon position and direction based on side
-                            if side == 'top':
-                                cpos = pygame.Vector2(new_block.centerx, new_block.top - CANNON_GAP)
-                                bdir = pygame.Vector2(0,-1)
-                            elif side == 'bottom':
-                                cpos = pygame.Vector2(new_block.centerx, new_block.bottom + CANNON_GAP)
-                                bdir = pygame.Vector2(0,1)
-                            elif side == 'left':
-                                cpos = pygame.Vector2(new_block.left - CANNON_GAP, new_block.centery)
-                                bdir = pygame.Vector2(-1,0)
-                            else:  # right
-                                cpos = pygame.Vector2(new_block.right + CANNON_GAP, new_block.centery)
-                                bdir = pygame.Vector2(1,0)
-
-                            new_cannon = Cannon(
-                                block=new_block,
-                                side=side,
-                                pos=cpos,
-                                rail_info=castle.rail_info,
-                                total_shots_ref=lambda: castle.total_shots,
-                                shooting_enabled_ref=lambda: castle.shooting_enabled,
-                                smoke_particles_ref=castle.smoke_particles,
-                                level=castle.level
-                            )
-                            new_cannon.base_dir = bdir
-                            new_cannon.preview_idx = cinfo.get('preview_idx', random.randint(0,2))
-                            new_cannon.born = now
-                            new_cannon.initial_decision_pending = True
-                            
-                            castle.cannons.append(new_cannon)
-                            new_cannon.rail_id, new_cannon.rail_idx = castle.rail_info.nearest_node((new_block.x, new_block.y))
+                        # Check if we can spawn a cannon from the destroyed cannons pool
+                        cannon_info = _get_respawnable_cannon(castle, now)
+                        if cannon_info:
+                            _spawn_cannon_on_block(castle, new_block, cannon_info, now)
                 else:
                     # Normal rebuild (tier 1 blocks or non-tiered blocks)
                     new_block = pygame.Rect(pos[0], pos[1], castle.block_size, castle.block_size)
@@ -889,41 +923,10 @@ def update_castle(castle, dt_ms, player_score=0, paddles=None, player_wall=None,
                     # Layout changed – rebuild perimeter tracks
                     castle._build_perimeter_track()
 
-                    # Rebuild all cannons that were attached to this block
-                    for cinfo in destroyed_at.get('had_cannons', []):
-                        side = cinfo['side']
-
-                        # determine cannon position and direction based on side
-                        if side == 'top':
-                            cpos = pygame.Vector2(new_block.centerx, new_block.top - CANNON_GAP)
-                            bdir = pygame.Vector2(0,-1)
-                        elif side == 'bottom':
-                            cpos = pygame.Vector2(new_block.centerx, new_block.bottom + CANNON_GAP)
-                            bdir = pygame.Vector2(0,1)
-                        elif side == 'left':
-                            cpos = pygame.Vector2(new_block.left - CANNON_GAP, new_block.centery)
-                            bdir = pygame.Vector2(-1,0)
-                        else:  # right
-                            cpos = pygame.Vector2(new_block.right + CANNON_GAP, new_block.centery)
-                            bdir = pygame.Vector2(1,0)
-
-                        new_cannon = Cannon(
-                            block=new_block,
-                            side=side,
-                            pos=cpos,
-                            rail_info=castle.rail_info,
-                            total_shots_ref=lambda: castle.total_shots,
-                            shooting_enabled_ref=lambda: castle.shooting_enabled,
-                            smoke_particles_ref=castle.smoke_particles,
-                            level=castle.level
-                        )
-                        new_cannon.base_dir = bdir
-                        new_cannon.preview_idx = cinfo.get('preview_idx', random.randint(0,2))
-                        new_cannon.born = now
-                        new_cannon.initial_decision_pending = True
-                        
-                        castle.cannons.append(new_cannon)
-                        new_cannon.rail_id, new_cannon.rail_idx = castle.rail_info.nearest_node((new_block.x, new_block.y))
+                    # Check if we can spawn a cannon from the destroyed cannons pool
+                    cannon_info = _get_respawnable_cannon(castle, now)
+                    if cannon_info:
+                        _spawn_cannon_on_block(castle, new_block, cannon_info, now)
 
     # Remove finished pop animations
     castle.pop_anims = [p for p in castle.pop_anims if now - p['start'] < castle.POP_DURATION]
