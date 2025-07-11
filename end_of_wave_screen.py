@@ -104,6 +104,13 @@ class EndOfWaveScreen:
         self.selected_action = None  # 'continue' or 'shop'
         self.selected_button = 0  # 0 = continue, 1 = shop
         
+        # Track if we've already prompted for name in this session
+        self.name_prompted_this_session = False
+        
+        # Input blocking delay to prevent accidental input from gameplay
+        self.input_block_duration = 800  # ms to block input at start
+        self.input_block_timer = 0
+    
     def _create_background(self):
         """Create a stable background surface."""
         # Two-layer background: an opaque black surface ensures that
@@ -256,8 +263,9 @@ class EndOfWaveScreen:
         shop_rect = shop_text.get_rect(center=self.shop_button.center)
         screen.blit(shop_text, shop_rect)
     
-    def show(self, score: int, wave_completion_time_ms: int, coins_at_wave_start: int, wave_number: Optional[int] = None):
+    def show(self, score: int, session_duration_ms: int, coins_at_wave_start: int, wave_number: Optional[int] = None):
         """Show the End of Wave Screen with given data."""
+        print(f"[EndOfWave] show() called: score={score}, session_duration_ms={session_duration_ms}, wave={wave_number}")
         self.active = True
         self.state = 'animating'
         self.timer = 0
@@ -271,7 +279,8 @@ class EndOfWaveScreen:
         
         # Store data
         self.score = score
-        self.completion_time = wave_completion_time_ms / 1000.0  # Convert to seconds
+        self.completion_time = session_duration_ms / 1000.0  # total session seconds so far
+        self._session_duration_ms = session_duration_ms
         self.time_bonus_multiplier = self._get_time_bonus_multiplier(self.completion_time)
         self.total_score = int(score * self.time_bonus_multiplier)
 
@@ -281,6 +290,9 @@ class EndOfWaveScreen:
         self.coins_collected = max(0, current_coins - coins_at_wave_start)
         self.score_bonus_multiplier = self._get_score_bonus_multiplier(score)
         self.total_coins = int(self.coins_collected * self.score_bonus_multiplier)
+        
+        # Start input blocking timer
+        self.input_block_timer = self.input_block_duration
         
         # Setup animations
         self.animated_values['score']['target'] = self.score
@@ -328,6 +340,7 @@ class EndOfWaveScreen:
     
     def hide(self):
         """Hide the End of Wave Screen."""
+        print(f"[EndOfWave] hide() called, resetting name_prompted_this_session from {self.name_prompted_this_session} to False")
         self.active = False
         self.state = 'idle'
         self.selected_action = None
@@ -337,6 +350,12 @@ class EndOfWaveScreen:
         self.initial_delay_timer = 0
         self.timer = 0
         self._stop_all_sounds()
+        
+        # Reset session flag when hiding (new session starting)
+        self.name_prompted_this_session = False
+        
+        # Reset input blocking timer
+        self.input_block_timer = 0
         
         # Ensure all animation states are reset
         for key in self.animated_values:
@@ -364,6 +383,12 @@ class EndOfWaveScreen:
         if not self.active or self.state == 'complete':
             return
             
+        # Update input blocking timer
+        if self.input_block_timer > 0:
+            self.input_block_timer -= dt_ms
+            if self.input_block_timer <= 0:
+                self.input_block_timer = 0
+        
         self.timer += dt_ms
         
         # Handle initial delay
@@ -390,20 +415,26 @@ class EndOfWaveScreen:
 
         # Handle name prompt lifecycle
         if self.name_prompt is not None:
-            if self.name_prompt.done and not self.leaderboard_thread_started:
+            if self.name_prompt.canceled:
+                # User canceled name entry, just continue without submitting
+                self.name_prompt = None
+                self.leaderboard_thread_started = True  # Prevent re-prompting
+            elif self.name_prompt.done and not self.leaderboard_thread_started:
                 # Save new name and submit to leaderboard
                 if self.name_prompt.name:
                     leaderboard.set_player_name(self.name_prompt.name)
+                # Only update local high score, don't submit to remote leaderboard
+                # (Remote submission happens at game over with full session data)
                 if self._wave_number is not None:
-                    import threading
-                    threading.Thread(target=leaderboard.handle_end_of_wave, args=(self.total_score, self._wave_number), daemon=True).start()
+                    leaderboard.handle_end_of_wave(self.total_score, self._wave_number, self._session_duration_ms)
+                    print(f"[EndOfWave] Submitted wave {self._wave_number} score: {self.total_score}")
                 self.leaderboard_thread_started = True
-                # Automatically continue past End-of-Wave screen
-                self.selected_action = 'continue'
-                self.state = 'complete'
-            # While prompt active, we don't progress animations further
-            if self.name_prompt.active:
-                return
+                # Clear name prompt but don't auto-continue, let user choose
+                self.name_prompt = None
+        
+        # While prompt active, we don't progress animations further
+        if self.name_prompt is not None and self.name_prompt.active:
+            return
     
     def _is_current_step_complete(self) -> bool:
         """Check if the current sequence step is complete."""
@@ -447,12 +478,23 @@ class EndOfWaveScreen:
             # Create buttons for user interaction and reset selection
             self.selected_button = 0
             self._create_buttons()
-            # If this is a personal best, prompt for name before submitting
-            # Submission will occur later after name prompt finishes.
-            if leaderboard.is_new_high(self.total_score):
+            # Check for new wave best and prompt for name if needed
+            print(f"[EndOfWave] Checking for name prompt: wave={self._wave_number}, score={self.total_score}, duration={self._session_duration_ms}")
+            if self._wave_number is not None:
+                is_new_best = leaderboard.is_new_wave_best(self._wave_number, self.total_score, self._session_duration_ms)
+                print(f"[EndOfWave] is_new_wave_best result: {is_new_best}")
+                print(f"[EndOfWave] name_prompt is None: {self.name_prompt is None}")
+                print(f"[EndOfWave] name_prompted_this_session: {self.name_prompted_this_session}")
+            if (self._wave_number is not None and 
+                leaderboard.is_new_wave_best(self._wave_number, self.total_score, self._session_duration_ms) and 
+                self.name_prompt is None and not self.name_prompted_this_session):
+                print(f"[EndOfWave] Creating name prompt!")
                 current_name = leaderboard.get_player_name()
                 self.name_prompt = NamePrompt(current_name)
                 self.leaderboard_thread_started = False
+                self.name_prompted_this_session = True
+            else:
+                print(f"[EndOfWave] Not creating name prompt")
     
     def _show_heading_and_animate(self, heading: str, value_key: str):
         """Show a heading and start animating its value."""
@@ -615,6 +657,10 @@ class EndOfWaveScreen:
         if not self.active:
             return False
         
+        # Block input during initial delay
+        if self.input_block_timer > 0:
+            return True  # Consume events but don't process them
+        
         # First give chance to name prompt
         if self.name_prompt is not None and self.name_prompt.active:
             if self.name_prompt.handle_event(event):
@@ -674,11 +720,23 @@ class EndOfWaveScreen:
                     self._stop_all_sounds()
                     self._create_buttons()  # Ensure buttons are created for interaction
 
-                    # If this score is a new personal best, show the name prompt now
-                    if leaderboard.is_new_high(self.total_score) and self.name_prompt is None:
+                    # Check for new wave best and prompt for name if needed (same logic as show_all_complete)
+                    print(f"[EndOfWave] Skip: Checking for name prompt: wave={self._wave_number}, score={self.total_score}, duration={self._session_duration_ms}")
+                    if self._wave_number is not None:
+                        is_new_best = leaderboard.is_new_wave_best(self._wave_number, self.total_score, self._session_duration_ms)
+                        print(f"[EndOfWave] Skip: is_new_wave_best result: {is_new_best}")
+                        print(f"[EndOfWave] Skip: name_prompt is None: {self.name_prompt is None}")
+                        print(f"[EndOfWave] Skip: name_prompted_this_session: {self.name_prompted_this_session}")
+                    if (self._wave_number is not None and 
+                        leaderboard.is_new_wave_best(self._wave_number, self.total_score, self._session_duration_ms) and 
+                        self.name_prompt is None and not self.name_prompted_this_session):
+                        print(f"[EndOfWave] Skip: Creating name prompt!")
                         current_name = leaderboard.get_player_name()
                         self.name_prompt = NamePrompt(current_name)
                         self.leaderboard_thread_started = False
+                        self.name_prompted_this_session = True
+                    else:
+                        print(f"[EndOfWave] Skip: Not creating name prompt")
 
                     return True
         

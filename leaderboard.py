@@ -37,12 +37,13 @@ APPEND_URL_TMPL = (
 # ------------------------------------------------------------------------
 
 FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLScRlsOSmQB8WMUFejsj2AK8XLWIIMFsvqMLRiNa29-j5vYf1Q/formResponse"
-
 # IDs captured from the pre-filled sample link the user provided
 ENTRY_PLAYER = "entry.1025709388"
 ENTRY_SCORE  = "entry.495305126"
 ENTRY_WAVE   = "entry.1995773847"
 ENTRY_DATE   = "entry.1605421804"
+# New Google Form field – total session duration in seconds (replace with actual ID)
+ENTRY_DURATION = "entry.2117623304"
 
 # ------------------------------------------------------------------------
 
@@ -92,50 +93,172 @@ def is_new_high(score: int) -> bool:
     """True if *score* beats the stored personal best."""
     return score > _player_data().get("high_score", 0)
 
+# --------------------------------------------------------------------
+#  Per-wave personal-best helpers
+# --------------------------------------------------------------------
+
+
+def _wave_records() -> dict:
+    """Return dict of wave -> {score, duration_ms}."""
+    return _player_data().get("wave_records", {})
+
+
+def _save_wave_records(records: dict):
+    data = _player_data()
+    data["wave_records"] = records
+    _write_player_data(data)
+
+
+def get_wave_best(wave: int):
+    recs = _wave_records()
+    return recs.get(str(wave))  # returns None or dict
+
+
+def is_new_wave_best(wave: int, score: int, duration_ms: int) -> bool:
+    """Return True if (wave,score,duration) beats stored best for that wave.
+
+    Criteria: higher score wins; if equal score then shorter duration wins.
+    """
+    best = get_wave_best(wave)
+    if best is None:
+        return True
+    if score > best.get("score", 0):
+        return True
+    if score == best.get("score", 0) and duration_ms < best.get("duration_ms", 10**9):
+        return True
+    return False
+
+
+def update_wave_best(wave: int, score: int, duration_ms: int):
+    recs = _wave_records()
+    recs[str(wave)] = {"score": int(score), "duration_ms": int(duration_ms)}
+    _save_wave_records(recs)
+
+# --------------------------------------------------------------------
+#  New session-level record helpers
+# --------------------------------------------------------------------
+
+
+def _best_session_data():
+    """Return stored best-session dictionary or default."""
+    d = _player_data()
+    return {
+        "wave": d.get("best_wave", 0),
+        "duration_ms": d.get("best_duration_ms", None),
+        "score": d.get("best_score", 0),
+    }
+
+
+def is_new_session(wave: int, duration_ms: int, score: int) -> bool:
+    """Return True if (wave, duration, score) is better than stored best.
+
+    Comparison order:
+      1. Higher *wave* reached wins
+      2. For equal wave, shorter *duration_ms* wins
+      3. Tie-break by higher *score* wins
+    """
+    best = _best_session_data()
+    if wave > best["wave"]:
+        return True
+    if wave == best["wave"]:
+        if best["duration_ms"] is None or duration_ms < best["duration_ms"]:
+            return True
+        if duration_ms == best["duration_ms"] and score > best["score"]:
+            return True
+    return False
+
+
+def update_best_session(wave: int, duration_ms: int, score: int):
+    """Persist the given session as the new personal best."""
+    data = _player_data()
+    data["best_wave"] = int(wave)
+    data["best_duration_ms"] = int(duration_ms)
+    data["best_score"] = int(score)
+    _write_player_data(data)
+
 def update_high_score(score: int, wave: int):
     data = _player_data()
     data["high_score"] = int(score)
     data["high_wave"] = int(wave)
     _write_player_data(data)
 
-
-def _read_api_key() -> str:
-    """Return a Google Sheets API key from env or local file, if present."""
-    key = os.getenv("GOOGLE_SHEETS_API_KEY")
-    if key:
-        return key.strip()
-    if os.path.exists("google_api_key.txt"):
-        with open("google_api_key.txt", "r", encoding="utf-8") as f:
-            return f.read().strip()
-    return None
+# --------------------------------------------------------------------
+#  Submission helpers (Google Form) – SESSION-LEVEL
+# --------------------------------------------------------------------
 
 
-def submit_score(score: int, wave: int) -> bool:
-    """Submit via public Google Form (no auth, 3-second timeout)."""
+def _format_duration(duration_ms: int) -> str:
+    """Return duration in seconds with one-decimal precision as string."""
+    return f"{duration_ms / 1000:.1f}"
+
+
+def submit_session(score: int, wave: int, duration_ms: int) -> bool:
+    """Submit session record via public Google Form (no auth)."""
     try:
         form_data = {
-            ENTRY_PLAYER: get_player_name(),
-            ENTRY_SCORE:  str(score),
-            ENTRY_WAVE:   str(wave),
-            ENTRY_DATE:   datetime.datetime.utcnow().isoformat(),
+            ENTRY_PLAYER:    get_player_name(),
+            ENTRY_SCORE:     str(score),
+            ENTRY_WAVE:      str(wave),
+            ENTRY_DURATION:  _format_duration(duration_ms),
+            ENTRY_DATE:      datetime.datetime.utcnow().isoformat(),
         }
         data = urllib.parse.urlencode(form_data).encode()
         urllib.request.urlopen(FORM_URL, data=data, timeout=3)
-        print("[Leaderboard] Submitted via Google Form")
+        print("[Leaderboard] Submitted session via Google Form")
         return True
     except Exception as e:
-        print("[Leaderboard] Form-submit error:", e)
+        print("[Leaderboard] Session submit error:", e)
         return False
 
 
-def handle_end_of_wave(score: int, wave: int):
-    """Update local high-score data and submit remotely if it is a record."""
-    if is_new_high(score):
-        print("[Leaderboard] New personal best:", score)
-        update_high_score(score, wave)
+def handle_session_end(score: int, wave: int, duration_ms: int):
+    """Public helper – call once when the player's run ends."""
+    if is_new_session(wave, duration_ms, score):
+        print("[Leaderboard] New best session:", (
+            f"wave={wave}", f"duration_ms={duration_ms}", f"score={score}"))
+        update_best_session(wave, duration_ms, score)
 
-        # run submission in a background thread so gameplay isn’t blocked
-        threading.Thread(target=submit_score, args=(score, wave), daemon=True).start()
+        # Submit asynchronously so main thread isn't blocked
+        threading.Thread(target=submit_session,
+                         args=(score, wave, duration_ms),
+                         daemon=True).start()
+
+
+def submit_wave_score(score: int, wave: int, duration_ms: int) -> bool:
+    """Submit wave personal best via Google Form (no auth)."""
+    print(f"[Leaderboard] Attempting to submit wave {wave}: score={score}, duration_ms={duration_ms}")
+    try:
+        form_data = {
+            ENTRY_PLAYER:   get_player_name(),
+            ENTRY_SCORE:    str(score),
+            ENTRY_WAVE:     str(wave),
+            ENTRY_DURATION: _format_duration(duration_ms),
+            ENTRY_DATE:     datetime.datetime.utcnow().isoformat(),
+        }
+        print(f"[Leaderboard] Form data: {form_data}")
+        data = urllib.parse.urlencode(form_data).encode()
+        print(f"[Leaderboard] Encoded data: {data}")
+        urllib.request.urlopen(FORM_URL, data=data, timeout=3)
+        print(f"[Leaderboard] Submitted wave {wave} PB")
+        return True
+    except Exception as e:
+        print("[Leaderboard] Wave submit error:", e)
+        return False
+
+
+def handle_end_of_wave(score: int, wave: int, duration_ms: int):
+    """Update per-wave PB and submit if it's a new record."""
+    print(f"[Leaderboard] handle_end_of_wave called: score={score}, wave={wave}, duration_ms={duration_ms}")
+    if is_new_wave_best(wave, score, duration_ms):
+        print(f"[Leaderboard] New wave {wave} best detected!")
+        update_wave_best(wave, score, duration_ms)
+        threading.Thread(target=submit_wave_score,
+                         args=(score, wave, duration_ms),
+                         daemon=True).start()
+    else:
+        print(f"[Leaderboard] Not a new best for wave {wave}")
+        best = get_wave_best(wave)
+        print(f"[Leaderboard] Current best: {best}")
 
 # --------------------- Public Fetch Helpers ---------------------------
 
@@ -166,43 +289,47 @@ def _download_csv() -> list[list[str]]:
         return []
 
 
-def get_top_scores(wave: int, limit: int = 10):
-    """Return a list of dicts with the top *limit* scores for *wave*.
+def get_top_scores(_unused_wave: int = 0, limit: int = 10):
+    """Return top leaderboard entries globally (single board).
 
-    Each dict has keys: name, score, wave, date.
+    Sorting priority: highest *wave*, then shortest *duration*, then highest *score*.
+    Returns list of dicts: name, wave, duration (sec), score, date.
     """
     rows = _download_csv()
     if not rows:
         return []
 
     header = [h.strip().lower() for h in rows[0]]
-
-    # Determine column indices dynamically (handles Timestamp column shift)
+    # Required columns
     try:
-        idx_player = header.index("player")
-        idx_score  = header.index("score")
-        idx_wave   = header.index("wave")
+        idx_player   = header.index("player")
+        idx_score    = header.index("score")
+        idx_wave     = header.index("wave")
+        idx_duration = header.index("duration")  # seconds
     except ValueError:
-        # Header row doesn’t match expected columns
-        return []
+        return []  # header mismatch
 
     idx_date = header.index("date") if "date" in header else None
 
     results = []
     for r in rows[1:]:
-        if len(r) <= max(idx_player, idx_score, idx_wave):
+        if len(r) <= max(idx_player, idx_score, idx_wave, idx_duration):
             continue
         try:
-            w = int(r[idx_wave])
-            s = int(r[idx_score])
+            wave = int(r[idx_wave])
+            score = int(r[idx_score])
+            duration_sec = float(r[idx_duration])
         except ValueError:
             continue
-        if w == wave:
-            results.append({
-                "name": r[idx_player] or "Anonymous",
-                "score": s,
-                "wave": w,
-                "date": r[idx_date] if idx_date is not None and idx_date < len(r) else "",
-            })
-    results.sort(key=lambda d: d["score"], reverse=True)
+
+        results.append({
+            "name": r[idx_player] or "Anonymous",
+            "wave": wave,
+            "duration": duration_sec,
+            "score": score,
+            "date": r[idx_date] if idx_date is not None and idx_date < len(r) else "",
+        })
+
+    # Sorting: highest wave, then shortest duration, then highest score
+    results.sort(key=lambda d: (-d["wave"], d["duration"], -d["score"]))
     return results[:limit] 

@@ -20,6 +20,7 @@ from upgrade_effects import apply_upgrade_effects, reset_upgrade_states, get_tim
 from pause_menu import PauseMenu  # <--- new import for in-game pause menu
 from options_menu import OptionsMenu  # <--- new import for options menu
 from end_of_wave_screen import EndOfWaveScreen  # <--- new import for end of wave screen
+from epilepsy_warning import EpilepsyWarning  # <--- new import for epilepsy warning
 import time
 
 # --- helper ---
@@ -179,7 +180,7 @@ except pygame.error as e:
 # --- music control flags ---
 TUT_LOOP_MS = 3600000  # 1 hour
 TUT_SILENCE_MS = 190        # extra silent gap between loops
-tutorial_looping  = True    # while the tutorial overlay is active
+tutorial_looping  = False   # will be set to True when tutorial overlay becomes active
 last_tut_restart  = pygame.time.get_ticks()
 # track if we are in the silence interval
 _tut_pause_until = 0
@@ -391,8 +392,13 @@ paddles = {
 balls        = []
 score        = 0
 particles = []
-# Tutorial overlay (displayed for the first few seconds)
-tutorial_overlay = TutorialOverlay()
+# Epilepsy warning (displayed first, only once)
+epilepsy_warning = EpilepsyWarning()
+epilepsy_warning_shown = False  # Track if warning has been dismissed
+# Tutorial overlay (displayed for the first few seconds) - don't auto-start music
+tutorial_overlay = TutorialOverlay(auto_start_music=False)
+# Start with tutorial overlay inactive while epilepsy warning is shown
+tutorial_overlay.active = False
 # Pause menu overlay
 pause_menu = PauseMenu()
 # Options menu overlay
@@ -436,7 +442,9 @@ wave_text_time = 0  # ms remaining
 
 # --- Wave timing tracking (for End of Wave Screen) -------------------
 wave_start_time = 0  # ms when current wave started
-wave_start_coins = 0  # coins at wave start (for coins collected calculation)
+# Track when the entire play session began (set when Wave 1 starts)
+session_start_time = 0  # ms since pygame.init()
+session_active_ms = 0  # cumulative active in-wave time this session
 
 # --- Paddle unlock animation -------------------------------------------
 intro_font = pygame.font.SysFont(None, 48, italic=True)
@@ -469,6 +477,8 @@ running = True
 last_time = pygame.time.get_ticks()
 # timer to restart music after fade-out between waves (0 means inactive)
 music_restart_time = 0
+# timer for when current wave music track should end (0 means inactive)
+music_end_time = 0
 
 # Flag so the slide-down SFX triggers only once
 game_over_sfx_played = False
@@ -522,10 +532,11 @@ def return_to_main_menu(show_menu=True):
     global wave, castle_dim_x, castle_dim_y, castle, player_wall, paddles, balls, score
     global particles, shake_frames, shake_intensity, flash_color, flash_timer
     global power_timers, barrier_timer, shoot_enable_time, wave_font, wave_text
-    global wave_text_time, intro_font, intros, game_over_sfx_played, music_restart_time
+    global wave_text_time, intro_font, intros, game_over_sfx_played, music_restart_time, music_end_time
     global tutorial_looping, _tut_pause_until, last_tut_restart, BACKGROUND
     global store, wave_transition, castle_building, castle_built_once
     global pause_menu, options_menu, tutorial_overlay, wave_music_playlist, current_playlist_index, current_playing_song
+    global epilepsy_warning, epilepsy_warning_shown
 
     # Core progression ---------------------------------------------------
     wave          = 1
@@ -572,6 +583,7 @@ def return_to_main_menu(show_menu=True):
     intros         = []
     game_over_sfx_played = False
     music_restart_time   = 0
+    music_end_time = 0
     castle_building      = False
     castle_built_once    = False
     wave_music_playlist = []
@@ -601,26 +613,31 @@ def return_to_main_menu(show_menu=True):
     options_menu.active = False  # Ensure the options overlay is closed
     # Only show menu if requested (for Exit button, not Play button)
     if show_menu:
-        tutorial_overlay.active = True
+        tutorial_overlay.active = True  # Show tutorial overlay directly
         tutorial_overlay.loading = False
         tutorial_overlay.selected_index = 0
         # Optionally reset other menu state here if needed
+    else:
+        tutorial_overlay.active = False
 
     # Music back to title track -----------------------------------------
     tutorial_looping = True
     _tut_pause_until = 0
     last_tut_restart = pygame.time.get_ticks()
-    try:
-        pygame.mixer.music.load(MUSIC_PATH)
-        # Use current music volume from options
-        music_volume = options_menu.get_setting('music_volume', 0.75)
-        if options_menu.get_setting('music_muted', False):
-            pygame.mixer.music.set_volume(0)
-        else:
-            pygame.mixer.music.set_volume(music_volume)
-        pygame.mixer.music.play(-1)
-    except Exception as e:
-        print(f"[Audio] Failed to reload tutorial music: {e}")
+    if show_menu:
+        try:
+            pygame.mixer.music.load("menu.mp3")
+            # Use current music volume from options
+            music_volume = options_menu.get_setting('music_volume', 0.75)
+            if options_menu.get_setting('music_muted', False):
+                pygame.mixer.music.set_volume(0)
+            else:
+                pygame.mixer.music.set_volume(music_volume)
+            pygame.mixer.music.play(-1)
+        except Exception as e:
+            print(f"[Audio] Failed to reload tutorial music: {e}")
+    else:
+        pygame.mixer.music.stop()
 
     # Re-apply any saved option settings
     options_menu._apply_settings()
@@ -830,7 +847,7 @@ while running:
 
     # Inform castle update logic whether rebuild progress should be paused
     castle._pause_rebuild = intro_active
-    paused = intro_active or tutorial_overlay.active or pause_menu.active or options_menu.active
+    paused = intro_active or tutorial_overlay.active or pause_menu.active or options_menu.active or (epilepsy_warning.active and not epilepsy_warning_shown)
 
     # Apply time scaling only to gameplay portion
     if wave_transition['state'] in ('approach', 'focus', 'resume'):
@@ -838,10 +855,10 @@ while running:
     else:
         ms_game = 0 if intro_active else ms
 
-    # Castle logic should be frozen during tutorial overlay (main menu) to prevent
+    # Castle logic should be frozen during tutorial overlay (main menu) and epilepsy warning to prevent
     # any background activity. During paddle intro we freeze all castle logic 
     # (including cannons) to avoid stray shots.
-    ms_castle = 0 if tutorial_overlay.active else ms_game
+    ms_castle = 0 if tutorial_overlay.active or (epilepsy_warning.active and not epilepsy_warning_shown) else ms_game
 
     dt = ms_game / (1000/60)
     now = pygame.time.get_ticks()
@@ -867,7 +884,7 @@ while running:
                 castle_building = False
         # Continue with normal game loop (castle.update) unless any menu is active
         if (not intro_active and not pause_menu.active and not store.active and
-            not options_menu.active and not tutorial_overlay.active and not end_of_wave_screen.active):
+            not options_menu.active and not tutorial_overlay.active and not end_of_wave_screen.active and not (epilepsy_warning.active and not epilepsy_warning_shown)):
             # Run castle logic only when gameplay is fully active. This prevents
             # cannons from charging or shooting while the game is paused,
             # in the store, in the options menu, or in the main menu.
@@ -938,6 +955,25 @@ while running:
     # — Event handling — (capture list so the overlay can see the same events)
     events = pygame.event.get()
 
+    # --- Handle epilepsy warning first (only if not yet shown) ---
+    if epilepsy_warning.active and not epilepsy_warning_shown:
+        epilepsy_warning.update(events, ms)
+        # When epilepsy warning is dismissed, show tutorial overlay
+        if not epilepsy_warning.active:
+            epilepsy_warning_shown = True  # Mark as shown so it never appears again
+            tutorial_overlay.active = True
+            tutorial_looping = True  # Enable tutorial music looping
+            # Load and play menu music now that warning is dismissed
+            try:
+                pygame.mixer.music.load(tutorial_overlay.MENU_MUSIC)
+                pygame.mixer.music.set_volume(0.6)
+                pygame.mixer.music.play(-1)
+            except pygame.error as e:
+                print(f"[Audio] Failed to load menu music: {e}")
+    elif epilepsy_warning_shown:
+        # If warning has been shown before, deactivate it permanently
+        epilepsy_warning.active = False
+
     # --- Handle tutorial overlay loading state ---
     prev_tut_active = getattr(tutorial_overlay, '_prev_active', tutorial_overlay.active)
     prev_loading = getattr(tutorial_overlay, '_prev_loading', False)
@@ -998,7 +1034,7 @@ while running:
             tutorial_overlay.loading = False
     
     # Check if tutorial overlay just became inactive (wave starting)
-    if prev_tut_active and not tutorial_overlay.active:
+    if prev_tut_active and not tutorial_overlay.active and epilepsy_warning_shown:
         wave_start_time = now
         wave_start_coins = get_coin_count()
         # Start wave music if we have tracks available
@@ -1006,9 +1042,12 @@ while running:
             start_random_wave_music()
 
     # Ensure wave_start_time is set for the first wave if it hasn't been set yet
-    if wave_start_time == 0 and wave == 1 and not tutorial_overlay.active:
+    if wave_start_time == 0 and wave == 1 and not tutorial_overlay.active and epilepsy_warning_shown:
         wave_start_time = now
         wave_start_coins = get_coin_count()
+        # Record the session start time at the beginning of the first wave
+        if wave == 1 and session_start_time == 0:
+            session_start_time = now
         
     tutorial_overlay._prev_active = tutorial_overlay.active
     tutorial_overlay._prev_loading = tutorial_overlay.loading
@@ -1016,7 +1055,7 @@ while running:
     # -----------------------------------------------------
     #  Recalculate paused state now that overlays processed
     # -----------------------------------------------------
-    paused = intro_active or tutorial_overlay.active or pause_menu.active or options_menu.active or store.active or end_of_wave_screen.active
+    paused = intro_active or tutorial_overlay.active or pause_menu.active or options_menu.active or store.active or end_of_wave_screen.active or (epilepsy_warning.active and not epilepsy_warning_shown)
     
     # Handle pause state changes for power timers - extend expiry times when unpausing
     if 'prev_paused' not in globals():
@@ -1996,6 +2035,10 @@ while running:
         thickness = 4
         pygame.draw.rect(screen, border_col, (0,0,WIDTH,HEIGHT), thickness)
 
+    # Draw epilepsy warning first (always on top) - only if not yet shown
+    if epilepsy_warning.active and not epilepsy_warning_shown:
+        epilepsy_warning.draw(screen)
+    
     # Draw overlays when wave transition is not active
     if not wave_transition['active']:
         tutorial_overlay.draw(screen)
@@ -2061,14 +2104,9 @@ while running:
             if wave_start_time == 0:
                 wave_start_time = now - 30000  # 30 seconds ago as fallback
             
-            wave_completion_time = now - wave_start_time
-            # Safety check: ensure reasonable completion time
-            if wave_completion_time < 0:
-                wave_completion_time = 30000  # 30 seconds default
-            elif wave_completion_time > 300000:  # 5 minutes max
-                wave_completion_time = 300000
-            
-            end_of_wave_screen.show(score, wave_completion_time, wave_start_coins, wave)
+            wave_play_time_ms = now - wave_start_time
+            session_active_ms += wave_play_time_ms
+            end_of_wave_screen.show(score, session_active_ms, wave_start_coins, wave)
             wave_transition['eos_shown'] = True
         
         # Check if End of Wave Screen is complete
@@ -2120,7 +2158,7 @@ while running:
                 min_blocks = 4 if next_wave == 1 else 6
                 next_castle, next_mask = create_castle_for_wave(next_wave)
                 chosen_music = MUSIC_PATH
-                if next_wave >= 2 and WAVE_MUSIC_FILES:
+                if next_wave >= 1 and WAVE_MUSIC_FILES:
                     # Get a different song from the playlist (avoid current song)
                     if not wave_music_playlist:
                         init_wave_music_playlist()
@@ -2192,15 +2230,17 @@ while running:
             if now_time - last_tut_restart >= TUT_LOOP_MS:
                 pygame.mixer.music.stop()
                 _tut_pause_until = now_time + TUT_SILENCE_MS
-    elif tutorial_looping:
+    elif tutorial_looping and epilepsy_warning_shown:
         # Player exited tutorial – if we were in gap make sure music resumes
+        # Only start music if epilepsy warning has been shown
         if not pygame.mixer.music.get_busy():
             pygame.mixer.music.play(-1, 0.0)
         tutorial_looping = False
         _tut_pause_until = 0
-    else:
+    elif epilepsy_warning_shown:
         # --- Simple playlist system using hard-coded track durations ---
-        if wave >= 2 and WAVE_MUSIC_FILES and music_end_time and pygame.time.get_ticks() >= music_end_time:
+        # Only manage wave music if epilepsy warning has been shown
+        if wave >= 1 and WAVE_MUSIC_FILES and music_end_time and pygame.time.get_ticks() >= music_end_time:
             next_song = get_next_wave_music()
             try:
                 pygame.mixer.music.load(next_song)
@@ -2217,12 +2257,13 @@ while running:
     # --------------------------------------------------------------------
 
     # restart music after scheduled fade-out once the timer has elapsed
-    if music_restart_time and pygame.time.get_ticks() >= music_restart_time:
-        # If we're on wave 2 or higher, start a random wave music track
-        if wave >= 2 and WAVE_MUSIC_FILES:
+    if music_restart_time and pygame.time.get_ticks() >= music_restart_time and epilepsy_warning_shown:
+        # If we're on wave 1 or higher, start a random wave music track
+        # Only restart music if epilepsy warning has been shown
+        if wave >= 1 and WAVE_MUSIC_FILES:
             start_random_wave_music()
         else:
-            pygame.mixer.music.play(-1)  # restart immediately, looping (for wave 1)
+            pygame.mixer.music.play(-1)  # restart immediately, looping (fallback if no wave music files)
         music_restart_time = 0
 
     # — Check lose conditions —
@@ -2233,6 +2274,20 @@ while running:
             game_over_sfx_played = True
         # Trigger fancy end screen then exit main loop
         final_score = score
+
+        # ----------------------------------------------------------------
+        #  Submit leaderboard entry for this session BEFORE state reset
+        # ----------------------------------------------------------------
+        try:
+            import leaderboard as _lb
+            if session_start_time:
+                session_duration_ms = pygame.time.get_ticks() - session_start_time
+            else:
+                session_duration_ms = 0
+            _lb.handle_session_end(final_score, wave, session_duration_ms)
+        except Exception as _e:
+            print("[Leaderboard] Failed to submit session:", _e)
+
         game_over_result = run_game_over(screen, final_score, WIDTH, HEIGHT)
 
         # --- Restart game state ---
@@ -2256,6 +2311,8 @@ while running:
         # Reset wave timing
         wave_start_time = 0
         wave_start_coins = 0
+        session_start_time = 0
+        session_active_ms = 0  # cumulative active in-wave time this session
         # Reset coin and store state
         clear_coins()
         clear_hearts()
@@ -2277,6 +2334,7 @@ while running:
         intros = []
         game_over_sfx_played = False
         music_restart_time = 0
+        music_end_time = 0
         wave_music_playlist = []
         current_playlist_index = 0
         current_playing_song = None
@@ -2284,20 +2342,9 @@ while running:
         tutorial_looping = True
         _tut_pause_until = 0
         last_tut_restart = pygame.time.get_ticks()
-        try:
-            pygame.mixer.music.load(MUSIC_PATH)
-            # Use current music volume from options
-            music_volume = options_menu.get_setting('music_volume', 0.75)
-            if options_menu.get_setting('music_muted', False):
-                pygame.mixer.music.set_volume(0)
-            else:
-                pygame.mixer.music.set_volume(music_volume)
-            # Playback will start in the title screen overlay
-        except Exception as e:
-            print(f"[Audio] Failed to reload tutorial music: {e}")
         # Only show main menu if ESCAPE was pressed
         if game_over_result == 'main_menu':
-            tutorial_overlay = TutorialOverlay()
+            tutorial_overlay = TutorialOverlay(auto_start_music=True)
             # Clear all debris and reset background
             castle.debris.clear()
             # Regenerate clean background
@@ -2393,10 +2440,14 @@ while running:
         if end_of_wave_screen.active:
             end_of_wave_screen.draw(screen)
 
+        # Draw epilepsy warning on top of everything if active and not yet shown
+        if epilepsy_warning.active and not epilepsy_warning_shown:
+            epilepsy_warning.draw(screen)
+
         pygame.display.flip()
 
-    # After tutorial overlay is dismissed, start first castle build if not already started
-    if not tutorial_overlay.active and not castle_built_once and not tutorial_overlay.loading:
+    # After tutorial overlay is dismissed AND epilepsy warning has been shown, start first castle build if not already started
+    if not tutorial_overlay.active and not castle_built_once and not tutorial_overlay.loading and epilepsy_warning_shown:
         print("[DEBUG] Starting castle build animation")
         castle_building = True
         castle_built_once = True

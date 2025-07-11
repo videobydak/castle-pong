@@ -1,5 +1,6 @@
 # --- Game settings ---
 game_settings.json
+player_data.json
 
 # --- Python runtime ---
 __pycache__/

@@ -175,19 +175,9 @@ class PauseMenu:
             # Recreate tutorial overlay (main menu)
             if hasattr(_main, 'tutorial_overlay'):
                 from tutorial import TutorialOverlay
-                _main.tutorial_overlay = TutorialOverlay()
-                # Ensure tutorial overlay is active and pause menu is closed
-                _main.tutorial_overlay.active = True
+                _main.tutorial_overlay = TutorialOverlay(auto_start_music=True)
             
-            # Switch to menu music
-            pygame.mixer.music.fadeout(400)
-            try:
-                # Load the menu music (same as tutorial overlay)
-                pygame.mixer.music.load("menu.mp3")
-                pygame.mixer.music.set_volume(0.6)
-                pygame.mixer.music.play(-1)
-            except Exception as e:
-                print(f"[Audio] Failed to load menu music: {e}")
+            # Music will be started by the tutorial overlay
             
             # Update store game state references
             if hasattr(_main, 'store') and hasattr(_main, 'paddles') and hasattr(_main, 'player_wall') and hasattr(_main, 'castle'):

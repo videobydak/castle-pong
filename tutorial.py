@@ -12,7 +12,7 @@ class TutorialOverlay:
     we keep the same class name.
     """
 
-    def __init__(self):
+    def __init__(self, auto_start_music=True):
         self.active: bool = True
         self.loading: bool = False  # New loading state
         self.loading_angle: float = 0.0  # For spinning loader
@@ -23,12 +23,13 @@ class TutorialOverlay:
         # Background music – loop dedicated menu track
         # -------------------------------------------------------------
         self.MENU_MUSIC = "menu.mp3"
-        try:
-            pygame.mixer.music.load(self.MENU_MUSIC)
-            pygame.mixer.music.set_volume(0.6)
-            pygame.mixer.music.play(-1)
-        except pygame.error as e:
-            print(f"[Audio] Failed to load menu music '{self.MENU_MUSIC}':", e)
+        if auto_start_music:
+            try:
+                pygame.mixer.music.load(self.MENU_MUSIC)
+                pygame.mixer.music.set_volume(0.6)
+                pygame.mixer.music.play(-1)
+            except pygame.error as e:
+                print(f"[Audio] Failed to load menu music '{self.MENU_MUSIC}':", e)
 
         # -------------------------------------------------------------
         # Fonts & static graphics
@@ -101,14 +102,6 @@ class TutorialOverlay:
             for e in events:
                 if e.type == pygame.KEYDOWN and e.key in (pygame.K_ESCAPE, pygame.K_BACKSPACE):
                     self.mode = "menu"
-                    return
-                elif e.type == pygame.KEYDOWN and e.key == pygame.K_LEFT:
-                    self.board_wave = max(1, self.board_wave - 1)
-                    self._refresh_board()
-                    return
-                elif e.type == pygame.KEYDOWN and e.key == pygame.K_RIGHT:
-                    self.board_wave += 1
-                    self._refresh_board()
                     return
             return  # Leaderboard mode doesn't update menu interactions
         
@@ -317,12 +310,11 @@ class TutorialOverlay:
     def _on_leaderboard(self):
         """Activate leaderboard view."""
         self.mode = "leaderboard"
-        self.board_wave = 1
         self._refresh_board()
 
     def _refresh_board(self):
         import time, leaderboard as lb
-        self.board_rows = lb.get_top_scores(self.board_wave, limit=20)
+        self.board_rows = lb.get_top_scores(limit=20)
         self.last_board_fetch = time.time()
 
     def _draw_leaderboard(self, surface: pygame.Surface):
@@ -332,20 +324,52 @@ class TutorialOverlay:
         bg.set_alpha(200)
         surface.blit(bg, (0, 0))
 
-        title = self._render_outline(f"Wave {self.board_wave} – Top Scores", self.btn_font, YELLOW, (0, 0, 0), 2)
+        title = self._render_outline("Global Leaderboard", self.btn_font, YELLOW, (0, 0, 0), 2)
         rect = title.get_rect(center=(WIDTH // 2, 120))
         surface.blit(title, rect)
 
-        y = rect.bottom + 20
+        # Draw column headers
+        header_font = self._load_pixel_font(20)
+        header_y = rect.bottom + 15
+        rank_header = header_font.render("RANK", True, (200, 200, 200))
+        name_header = header_font.render("NAME", True, (200, 200, 200))
+        wave_header = header_font.render("WAVE", True, (200, 200, 200))
+        time_header = header_font.render("TIME", True, (200, 200, 200))
+        score_header = header_font.render("SCORE", True, (200, 200, 200))
+        
+        # Position headers
+        surface.blit(rank_header, (50, header_y))
+        surface.blit(name_header, (150, header_y))
+        surface.blit(wave_header, (350, header_y))
+        surface.blit(time_header, (450, header_y))
+        surface.blit(score_header, (580, header_y))
+
+        y = header_y + 35
         rank_font = self._load_pixel_font(28)
         for idx, row in enumerate(self.board_rows, 1):
-            txt = rank_font.render(f"{idx:2}. {row['name'][:12]:12}  {row['score']}", True, WHITE)
-            txt_rect = txt.get_rect(center=(WIDTH // 2, y))
-            surface.blit(txt, txt_rect)
+            # Format duration as MM:SS
+            duration_sec = row.get('duration', 0)
+            minutes = int(duration_sec // 60)
+            seconds = int(duration_sec % 60)
+            time_str = f"{minutes}:{seconds:02d}"
+            
+            # Render each column
+            rank_txt = rank_font.render(f"{idx}", True, WHITE)
+            name_txt = rank_font.render(f"{row['name'][:10]}", True, WHITE)
+            wave_txt = rank_font.render(f"{row.get('wave', 1)}", True, WHITE)
+            time_txt = rank_font.render(time_str, True, WHITE)
+            score_txt = rank_font.render(f"{row.get('score', 0)}", True, WHITE)
+            
+            # Position each column
+            surface.blit(rank_txt, (50, y))
+            surface.blit(name_txt, (150, y))
+            surface.blit(wave_txt, (350, y))
+            surface.blit(time_txt, (450, y))
+            surface.blit(score_txt, (580, y))
             y += 32
 
         hint_font = self._load_pixel_font(18)
-        hint = hint_font.render("←/→ wave   ESC to back", True, WHITE)
+        hint = hint_font.render("ESC to back", True, WHITE)
         hint_rect = hint.get_rect(center=(WIDTH // 2, HEIGHT - 60))
         surface.blit(hint, hint_rect)
 
