@@ -1077,7 +1077,7 @@ while running:
     prev_paused = paused
 
     # Only process game events if no menu consumed them
-    if not options_consumed_events and not store_consumed_events:
+    if not options_consumed_events and not store_consumed_events and not eos_consumed_events:
         for e in events:
             if e.type==pygame.QUIT:
                 running=False
