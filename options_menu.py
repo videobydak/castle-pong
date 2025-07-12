@@ -356,46 +356,57 @@ class OptionsMenu:
     
     def _apply_settings(self):
         """Apply current settings to the game systems."""
-        # Apply music settings
-        if self.settings['music_muted']:
-            pygame.mixer.music.set_volume(0)
-        else:
-            pygame.mixer.music.set_volume(self.settings['music_volume'])
+        # Apply music volume and mute settings
+        music_volume = 0 if self.settings.get('music_muted', False) else self.settings.get('music_volume', 0.75)
         
-        # Apply SFX settings to all loaded sounds
+        # Apply to currently playing music immediately
         try:
-            import sys
-            main_module = sys.modules['__main__']
-            if hasattr(main_module, 'sounds'):
-                sfx_vol = 0 if self.settings['sfx_muted'] else self.settings['sfx_volume']
-                for sound_name, sound in main_module.sounds.items():
-                    if sound:  # Check if sound loaded successfully
-                        # Apply 7% volume reduction to wall_break sound
-                        if sound_name == 'wall_break':
-                            adjusted_vol = sfx_vol * 0.93  # 7% quieter
-                            sound.set_volume(adjusted_vol)
-                        else:
-                            sound.set_volume(sfx_vol)
-            
-            # Apply to coin sounds specifically
-            if 'coin' in sys.modules:
-                coin_module = sys.modules['coin']
-                if hasattr(coin_module, 'update_coin_volumes'):
-                    coin_module.update_coin_volumes()
-            
-            # Also apply to any other sound objects in various modules
-            modules_to_check = ['heart', 'store', 'paddle_intro']
-            for module_name in modules_to_check:
-                if module_name in sys.modules:
-                    module = sys.modules[module_name]
-                    # Look for sound attributes
-                    for attr_name in dir(module):
-                        if 'sound' in attr_name.lower():
-                            attr = getattr(module, attr_name)
-                            if hasattr(attr, 'set_volume'):
-                                attr.set_volume(sfx_vol)
+            if pygame.mixer.music.get_busy():
+                pygame.mixer.music.set_volume(music_volume)
+                print(f"[Audio] Applied music volume: {music_volume}")
         except Exception as e:
-            print(f"[Options] Failed to apply SFX volume: {e}")
+            print(f"[Audio] Failed to apply music volume: {e}")
+        
+        # Apply SFX volume settings
+        sfx_volume = 0 if self.settings.get('sfx_muted', False) else self.settings.get('sfx_volume', 0.75)
+        
+        # Apply to sound effects
+        try:
+            # Import main module to access sounds dictionary
+            import main
+            if hasattr(main, 'sounds'):
+                for sound_name, sound_obj in main.sounds.items():
+                    if sound_obj:
+                        sound_obj.set_volume(sfx_volume)
+                print(f"[Audio] Applied SFX volume: {sfx_volume}")
+        except Exception as e:
+            print(f"[Audio] Failed to apply SFX volume: {e}")
+        
+        # Apply to coin sounds
+        try:
+            import coin
+            if hasattr(coin, 'update_coin_volumes'):
+                coin.update_coin_volumes()
+        except Exception as e:
+            print(f"[Audio] Failed to apply coin volume: {e}")
+        
+        # Apply to heart sounds
+        try:
+            import heart
+            if hasattr(heart, 'update_heart_volumes'):
+                heart.update_heart_volumes()
+        except Exception as e:
+            print(f"[Audio] Failed to apply heart volume: {e}")
+        
+        # Apply to store sounds
+        try:
+            import store
+            if hasattr(store, 'update_store_volumes'):
+                store.update_store_volumes()
+        except Exception as e:
+            print(f"[Audio] Failed to apply store volume: {e}")
+        
+        print(f"[Options] Applied settings - Music: {music_volume}, SFX: {sfx_volume}")
     
     def update(self, events):
         """Handle input events for the options menu."""
@@ -592,20 +603,42 @@ class OptionsMenu:
                 consumed_event = True
 
     def _handle_slider_drag(self, mouse_pos):
-        """Handle slider dragging."""
-        if self.dragging_slider is None:
-            return
-        
-        option = self.options[self.dragging_slider]
-        slider_rect = option['slider_rect']
-        
-        # Calculate new value based on mouse position
-        relative_x = mouse_pos[0] - slider_rect.left
-        relative_x = max(0, min(relative_x, slider_rect.width))
-        new_value = relative_x / slider_rect.width
-        
-        self.settings[option['key']] = new_value
-        self._apply_settings()
+        """Handle dragging of volume sliders."""
+        if self.dragging_slider:
+            option = self.options[self.dragging_slider]
+            if option['type'] == 'slider':
+                # Calculate new value based on mouse position
+                slider_rect = option['slider_rect']
+                relative_x = mouse_pos[0] - slider_rect.left
+                relative_x = max(0, min(relative_x, slider_rect.width))
+                new_value = relative_x / slider_rect.width
+                
+                # Update the setting
+                self.settings[option['key']] = new_value
+                
+                # Apply music volume changes immediately for real-time feedback
+                if option['key'] == 'music_volume':
+                    try:
+                        if pygame.mixer.music.get_busy():
+                            music_volume = 0 if self.settings.get('music_muted', False) else new_value
+                            pygame.mixer.music.set_volume(music_volume)
+                    except Exception as e:
+                        print(f"[Audio] Failed to apply real-time music volume: {e}")
+                
+                # Apply SFX volume changes immediately for real-time feedback
+                elif option['key'] == 'sfx_volume':
+                    try:
+                        import main
+                        if hasattr(main, 'sounds'):
+                            sfx_volume = 0 if self.settings.get('sfx_muted', False) else new_value
+                            for sound_name, sound_obj in main.sounds.items():
+                                if sound_obj:
+                                    sound_obj.set_volume(sfx_volume)
+                    except Exception as e:
+                        print(f"[Audio] Failed to apply real-time SFX volume: {e}")
+                
+                # Save settings
+                self._save_settings()
 
     def _handle_left_arrow(self):
         """Handle left arrow key press."""

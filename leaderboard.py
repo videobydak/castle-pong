@@ -24,6 +24,16 @@ Configuration:
     owner.  Change here if you switch leaderboards.
 """
 
+# Check if we're running in a web environment
+try:
+    import platform
+    RUNNING_ON_WEB = platform.system() == "Emscripten"
+except:
+    RUNNING_ON_WEB = False
+
+# Web-compatible storage
+_web_storage = {}
+
 SHEET_ID = "1WiH2xiUjg5XGaXCYbpfjWCBWwSlP1d5D0xnGKA0M9zA"
 PLAYER_DATA_FILE = "player_data.json"
 CSV_URL = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv"
@@ -48,20 +58,29 @@ ENTRY_DURATION = "entry.2117623304"
 # ------------------------------------------------------------------------
 
 def _load_json(path: str, default):
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return default
+    if RUNNING_ON_WEB:
+        # Use in-memory storage for web environments
+        return _web_storage.get(path, default)
+    else:
+        if os.path.exists(path):
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception:
+                pass
+        return default
 
 def _save_json(path: str, data):
-    try:
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-    except Exception as e:
-        print("[Leaderboard] Failed to save", path, ":", e)
+    if RUNNING_ON_WEB:
+        # Use in-memory storage for web environments
+        _web_storage[path] = data
+        print(f"[Leaderboard] Saved to web storage: {path}")
+    else:
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            print("[Leaderboard] Failed to save", path, ":", e)
 
 def _player_data():
     return _load_json(PLAYER_DATA_FILE, {})
@@ -74,11 +93,19 @@ def get_player_name() -> str:
     data = _player_data()
     if "player_name" in data and data["player_name"]:
         return data["player_name"]
-    name = (
-        os.getenv("CASTLE_PONG_PLAYER")
-        or getpass.getuser()
-        or "Player"
-    )
+    
+    # Get name with web-compatible fallbacks
+    name = os.getenv("CASTLE_PONG_PLAYER")
+    if not name:
+        if RUNNING_ON_WEB:
+            name = "WebPlayer"
+        else:
+            try:
+                name = getpass.getuser()
+            except:
+                name = "Player"
+    
+    name = name or "Player"
     data["player_name"] = name
     _write_player_data(data)
     return name
@@ -203,11 +230,18 @@ def submit_session(score: int, wave: int, duration_ms: int) -> bool:
             ENTRY_DATE:      datetime.datetime.utcnow().isoformat(),
         }
         data = urllib.parse.urlencode(form_data).encode()
+        
+        # Web environments may have restrictions on network requests
+        if RUNNING_ON_WEB:
+            print(f"[Leaderboard] Web environment - attempting form submit: {form_data}")
+        
         urllib.request.urlopen(FORM_URL, data=data, timeout=3)
         print("[Leaderboard] Submitted session via Google Form")
         return True
     except Exception as e:
         print("[Leaderboard] Session submit error:", e)
+        if RUNNING_ON_WEB:
+            print("[Leaderboard] Network requests may be restricted in web environment")
         return False
 
 
@@ -219,9 +253,16 @@ def handle_session_end(score: int, wave: int, duration_ms: int):
         update_best_session(wave, duration_ms, score)
 
         # Submit asynchronously so main thread isn't blocked
-        threading.Thread(target=submit_session,
-                         args=(score, wave, duration_ms),
-                         daemon=True).start()
+        # In web environments, threading might not work properly
+        if RUNNING_ON_WEB:
+            try:
+                submit_session(score, wave, duration_ms)
+            except Exception as e:
+                print(f"[Leaderboard] Web submit failed: {e}")
+        else:
+            threading.Thread(target=submit_session,
+                             args=(score, wave, duration_ms),
+                             daemon=True).start()
 
 
 def submit_wave_score(score: int, wave: int, duration_ms: int) -> bool:
@@ -238,11 +279,17 @@ def submit_wave_score(score: int, wave: int, duration_ms: int) -> bool:
         print(f"[Leaderboard] Form data: {form_data}")
         data = urllib.parse.urlencode(form_data).encode()
         print(f"[Leaderboard] Encoded data: {data}")
+        
+        if RUNNING_ON_WEB:
+            print("[Leaderboard] Web environment - attempting wave score submit")
+        
         urllib.request.urlopen(FORM_URL, data=data, timeout=3)
         print(f"[Leaderboard] Submitted wave {wave} PB")
         return True
     except Exception as e:
         print("[Leaderboard] Wave submit error:", e)
+        if RUNNING_ON_WEB:
+            print("[Leaderboard] Network requests may be restricted in web environment")
         return False
 
 
@@ -252,9 +299,18 @@ def handle_end_of_wave(score: int, wave: int, duration_ms: int):
     if is_new_wave_best(wave, score, duration_ms):
         print(f"[Leaderboard] New wave {wave} best detected!")
         update_wave_best(wave, score, duration_ms)
-        threading.Thread(target=submit_wave_score,
-                         args=(score, wave, duration_ms),
-                         daemon=True).start()
+        
+        # Submit asynchronously so main thread isn't blocked
+        # In web environments, threading might not work properly
+        if RUNNING_ON_WEB:
+            try:
+                submit_wave_score(score, wave, duration_ms)
+            except Exception as e:
+                print(f"[Leaderboard] Web submit failed: {e}")
+        else:
+            threading.Thread(target=submit_wave_score,
+                             args=(score, wave, duration_ms),
+                             daemon=True).start()
     else:
         print(f"[Leaderboard] Not a new best for wave {wave}")
         best = get_wave_best(wave)
@@ -279,13 +335,24 @@ def _download_csv() -> list[list[str]]:
         return _csv_cache[CSV_URL][1]
 
     try:
+        if RUNNING_ON_WEB:
+            print("[Leaderboard] Web environment - attempting CSV download")
+        
         with urllib.request.urlopen(CSV_URL, timeout=5) as resp:
             data = resp.read().decode("utf-8", errors="replace")
         rows = list(csv.reader(io.StringIO(data)))
         _csv_cache[CSV_URL] = (now, rows)
+        
+        if RUNNING_ON_WEB:
+            print(f"[Leaderboard] Web CSV download successful - {len(rows)} rows")
+        
         return rows
     except Exception as e:
         print("[Leaderboard] CSV fetch error:", e)
+        if RUNNING_ON_WEB:
+            print("[Leaderboard] Network requests may be restricted in web environment")
+            # Return empty list instead of cached data that might not exist
+            return []
         return []
 
 

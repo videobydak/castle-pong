@@ -4,7 +4,7 @@ import pygame
 
 # --- Constants ---
 WIDTH, HEIGHT = 1280, 900
-FPS = 120
+FPS = 60  # Reduced from 120 to 60 for better web browser compatibility
 
 BASE_BLOCK_SIZE = 30
 BLOCK_SIZE = 45   # 50% larger than previous 30
@@ -208,6 +208,25 @@ BACKGROUND_MUSIC_TRACKS = [
     ("Untitled5.mp3", 72_000),   # 1:12
     ("Untitled6.mp3", 61_000),   # 1:01
 ]
+
+def get_audio_file_for_platform(filename):
+    """Convert audio filename to appropriate format for current platform.
+    For pygame-web (emscripten), use OGG files instead of MP3."""
+    try:
+        import platform
+        if platform.system() == "Emscripten":
+            # Running on pygame-web, use OGG
+            if filename.endswith('.mp3'):
+                return filename[:-4] + '.ogg'
+    except:
+        pass
+    return filename
+
+# Get platform-appropriate background music tracks
+def get_background_music_tracks():
+    """Get background music tracks with appropriate file extensions for current platform."""
+    return [(get_audio_file_for_platform(filename), duration) 
+            for filename, duration in BACKGROUND_MUSIC_TRACKS]
 
 _original_print = _builtins.print
 

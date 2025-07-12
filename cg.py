@@ -1,10 +1,40 @@
 import random
 import numpy as np
 from enum import Enum
-import matplotlib.pyplot as plt
 import time
-import scipy.ndimage  # for label
-from scipy.ndimage import label
+
+# Simple connected component labeling to replace scipy.ndimage.label
+def simple_label(binary_mask):
+    """Simple connected component labeling for 2D binary arrays.
+    Returns (labeled_array, num_labels) similar to scipy.ndimage.label"""
+    if binary_mask.dtype != bool:
+        binary_mask = binary_mask.astype(bool)
+    
+    height, width = binary_mask.shape
+    labels = np.zeros((height, width), dtype=int)
+    current_label = 0
+    
+    def flood_fill(start_y, start_x, label):
+        """Flood fill connected component with given label"""
+        stack = [(start_y, start_x)]
+        while stack:
+            y, x = stack.pop()
+            if (y < 0 or y >= height or x < 0 or x >= width or 
+                labels[y, x] != 0 or not binary_mask[y, x]):
+                continue
+            
+            labels[y, x] = label
+            # Check 4-connected neighbors
+            stack.extend([(y+1, x), (y-1, x), (y, x+1), (y, x-1)])
+    
+    # Find all connected components
+    for y in range(height):
+        for x in range(width):
+            if binary_mask[y, x] and labels[y, x] == 0:
+                current_label += 1
+                flood_fill(y, x, current_label)
+    
+    return labels, current_label
 
 class BlockType(Enum):
     EMPTY = 0      # Empty space
@@ -324,7 +354,7 @@ class CastleGenerator:
                             corners += 1
         # 3. Number of chambers (connected regions of floor or grass inside walls)
         interior_mask = (grid != BlockType.WALL.value)
-        chambers, num_chambers = label(interior_mask)
+        chambers, num_chambers = simple_label(interior_mask)
         # 4. Footprint (bounding box area of all wall tiles)
         wall_ys, wall_xs = np.where(wall_mask)
         if wall_ys.size > 0 and wall_xs.size > 0:
@@ -399,12 +429,9 @@ def generate_mask_for_difficulty(width, height, target, tolerance=2, min_wall_bl
 
 # Demo usage
 if __name__ == "__main__":
-    plt.ion()  # Turn on interactive mode
-    fig, ax = plt.subplots(figsize=(6.7, 5))
-    img_display = ax.imshow(np.ones((15, 20), dtype=np.uint8) * 255, cmap='gray', vmin=0, vmax=255)
-    plt.axis('off')
-    title = ax.set_title('')
-    fig.show()
+    # Removed plt.ion() and fig/ax/img_display/title as per edit hint
+    # Removed matplotlib.pyplot and scipy.ndimage dependencies
+    # Replaced with simple print and numpy arrays
 
     # Difficulty targets: 5, 10, 15, ..., 100
     targets = list(range(5, 101, 5))
@@ -422,20 +449,17 @@ if __name__ == "__main__":
                     generator = CastleGenerator(20, 15)
                     generator.grid = mask.copy()
                     difficulty = generator.compute_difficulty()
-                    img = np.ones((15, 20), dtype=np.uint8) * 255  # default: white
-                    # Black for layer 1, mid grey for layer 2, light grey for layer 3
-                    img[mask == BlockType.WALL_L1.value] = 0      # black
-                    img[mask == BlockType.WALL_L2.value] = 128    # mid grey
-                    img[mask == BlockType.WALL_L3.value] = 200    # light grey
-                    img_display.set_data(img)
-                    title.set_text(f'Castle Pattern (20x15) - Difficulty: {difficulty}% (Target: {target}%)')
-                    fig.canvas.draw_idle()
-                    plt.pause(3)
+                    # Simple print for display
+                    print(f"Castle Pattern (20x15) - Difficulty: {difficulty}% (Target: {target}%)")
+                    print("-" * (20 * 2))
+                    for row in mask:
+                        print(' '.join(str(cell) for cell in row))
+                    print("-" * (20 * 2))
+                    time.sleep(3) # Pause for display
                     break
                 else:
                     # Could not find a map in range after max_attempts
-                    title.set_text(f'No map found for {target}% after {max_attempts} attempts')
-                    fig.canvas.draw_idle()
-                    plt.pause(2)
+                    print(f"No map found for {target}% after {max_attempts} attempts")
+                    time.sleep(2)
     except KeyboardInterrupt:
         pass

@@ -198,58 +198,13 @@ except:
 MUSIC_PATH = "Untitled.ogg" if RUNNING_ON_WEB else "Untitled.mp3"  # background soundtrack in project root
 # Custom event posted when current music track finishes
 MUSIC_END_EVENT = pygame.USEREVENT + 8
-
-# Web-specific music management
-_current_music_track = None
-_music_loading = False
-
-def load_and_play_music(filename, volume=0.6, loop=-1):
-    """Web-compatible music loading and playing with improved state management"""
-    global _current_music_track, _music_loading
-    
-    # Enhanced state checking to prevent overlapping tracks
-    if RUNNING_ON_WEB:
-        # Prevent multiple simultaneous music loads in web environment
-        if _music_loading:
-            print(f"[Audio] Music loading in progress, skipping: {filename}")
-            return False
-        
-        # Don't reload the same track
-        if _current_music_track == filename and pygame.mixer.music.get_busy():
-            print(f"[Audio] Track already playing: {filename}")
-            return True
-    
-    try:
-        if RUNNING_ON_WEB:
-            _music_loading = True
-        
-        # Always stop current music cleanly with a brief fade for web
-        if pygame.mixer.music.get_busy():
-            if RUNNING_ON_WEB:
-                pygame.mixer.music.fadeout(100)  # Brief 100ms fade for web
-                # Brief pause to ensure fade completes
-                pygame.time.wait(100)
-            else:
-                pygame.mixer.music.stop()
-        
-        # Load new track
-        pygame.mixer.music.load(filename)
-        pygame.mixer.music.set_volume(volume)
-        pygame.mixer.music.play(loop)
-        
-        _current_music_track = filename
-        print(f'[Audio] Successfully loaded and playing: {filename}')
-        return True
-    except pygame.error as e:
-        print(f"[Audio] Failed to load '{filename}': {e}")
-        return False
-    finally:
-        if RUNNING_ON_WEB:
-            _music_loading = False
-
-# Try to load initial music
 # NOTE: Music will only start after epilepsy warning is dismissed
-# load_and_play_music(MUSIC_PATH, volume=0.6, loop=-1)
+# try:
+#     pygame.mixer.music.load(MUSIC_PATH)
+#     # Volume will be set after options menu is initialized
+#     print('[Audio] Title music preloaded')
+# except pygame.error as e:
+#     print(f"[Audio] Failed to load '{MUSIC_PATH}':", e)
 
 # --- music control flags ---
 TUT_LOOP_MS = 3600000  # 1 hour
@@ -330,26 +285,33 @@ def start_random_wave_music():
     chosen_music = wave_music_playlist[current_playlist_index]
     current_playing_song = chosen_music  # Track what we're now playing
     
-    # Use current music volume from options
-    music_volume = options_menu.get_setting('music_volume', 0.75)
-    if options_menu.get_setting('music_muted', False):
-        music_volume = 0
-    
-    success = load_and_play_music(chosen_music, volume=music_volume, loop=0)
-    if success:
+    try:
+        pygame.mixer.music.load(chosen_music)
+        # Use current music volume from options
+        music_volume = options_menu.get_setting('music_volume', 0.75)
+        if options_menu.get_setting('music_muted', False):
+            pygame.mixer.music.set_volume(0)
+        else:
+            pygame.mixer.music.set_volume(music_volume)
+        pygame.mixer.music.play(0)  # Play once without looping
         # Set timer based on hard-coded duration
         global music_end_time
         music_end_time = pygame.time.get_ticks() + TRACK_DURATIONS.get(chosen_music, 180000)
         print(f"[Audio] Started wave music: {chosen_music}")
-    return success
+        return True
+    except Exception as e:
+        print(f"[Audio] Failed to load wave music: {e}")
+        return False
 
 # --- Background wave music files ---
 # Pull filenames directly from BACKGROUND_MUSIC_TRACKS in config.py. Only keep
 # tracks that actually exist on disk to avoid loading errors.
 from utils import resource_exists, load_font
-WAVE_MUSIC_FILES = [f for (f, _d) in BACKGROUND_MUSIC_TRACKS if resource_exists(f)]
+from config import get_background_music_tracks, get_audio_file_for_platform
+PLATFORM_MUSIC_TRACKS = get_background_music_tracks()
+WAVE_MUSIC_FILES = [f for (f, _d) in PLATFORM_MUSIC_TRACKS if resource_exists(f)]
 # Map filename -> hard-coded duration (ms) for timer-based track switching
-TRACK_DURATIONS = {f: dur for (f, dur) in BACKGROUND_MUSIC_TRACKS}
+TRACK_DURATIONS = {f: dur for (f, dur) in PLATFORM_MUSIC_TRACKS}
 
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 clock  = pygame.time.Clock()
@@ -358,12 +320,14 @@ font       = pygame.font.SysFont(None, 36)
 small_font = pygame.font.SysFont(None, 18)
 
 # Generate a background grass texture once
+print("[DEBUG] Generating background grass...")
 BACKGROUND = generate_grass(WIDTH, HEIGHT)  # Full opacity to match menu
 WHITE_BG = pygame.Surface((WIDTH, HEIGHT))
 WHITE_BG.fill(WHITE)
 
 # off-screen scene surface for screen shake
 scene_surf = pygame.Surface((WIDTH, HEIGHT))
+print("[DEBUG] Background surfaces created")
 
 # --- Game setup ---
 # Waves & castle size control -------------------------------------------
@@ -444,6 +408,7 @@ def create_castle_for_wave(wave):
     return castle, mask
 
 # Create the very first castle using the mask system
+print("[DEBUG] Creating castle...")
 castle, mask = create_castle_for_wave(wave)
 castle_building = False  # Don't start building until after tutorial
 castle_built_once = False  # Track if first build animation has run
@@ -460,12 +425,15 @@ balls        = []
 score        = 0
 particles = []
 # Epilepsy warning (displayed first, only once)
+print("[DEBUG] Creating epilepsy warning...")
 epilepsy_warning = EpilepsyWarning()
 epilepsy_warning_shown = False  # Track if warning has been dismissed
+print("[DEBUG] Creating tutorial overlay...")
 # Tutorial overlay (displayed for the first few seconds) - don't auto-start music
 tutorial_overlay = TutorialOverlay(auto_start_music=False)
 # Start with tutorial overlay inactive while epilepsy warning is shown
 tutorial_overlay.active = False
+print("[DEBUG] Game objects initialized")
 # Pause menu overlay
 pause_menu = PauseMenu()
 # Options menu overlay
@@ -693,13 +661,16 @@ def return_to_main_menu(show_menu=True):
     last_tut_restart = pygame.time.get_ticks()
     if show_menu:
         try:
-            menu_file = "menu.mp3"
+            # Use appropriate format for current platform
+            menu_file = get_audio_file_for_platform("menu.mp3")
+            pygame.mixer.music.load(menu_file)
             # Use current music volume from options
             music_volume = options_menu.get_setting('music_volume', 0.75)
             if options_menu.get_setting('music_muted', False):
-                music_volume = 0
-            
-            load_and_play_music(menu_file, volume=music_volume, loop=-1)
+                pygame.mixer.music.set_volume(0)
+            else:
+                pygame.mixer.music.set_volume(music_volume)
+            pygame.mixer.music.play(-1)
         except Exception as e:
             print(f"[Audio] Failed to reload tutorial music: {e}")
     else:
@@ -856,24 +827,18 @@ async def main_loop():
     global wave_music_playlist, current_playlist_index, current_playing_song
     print("[DEBUG] Main loop starting...")
     while running:
+        # Essential for web compatibility - yield control back to browser
+        await asyncio.sleep(0)
+        
         # Handle pygame-web specific requirements
         if RUNNING_ON_WEB:
-            # For pygame-web, ensure consistent 60 FPS with better frame limiting
+            # For pygame-web, we need to be more careful with event handling
             try:
-                ms = clock.tick(60)  # Always use 60 FPS for web
-                # Cap frame time to prevent large jumps that can cause performance issues
-                if ms > 33:  # Cap at ~30 FPS minimum (33ms per frame)
-                    ms = 33
-                elif ms < 16:  # Minimum 16ms per frame (60 FPS)
-                    ms = 16
+                ms = clock.tick(FPS)
             except:
-                ms = 16  # fallback to 60 FPS
+                ms = 16  # fallback to ~60 FPS
         else:
             ms = clock.tick(FPS)
-        
-        # Yield control to browser more frequently for better responsiveness
-        if RUNNING_ON_WEB:
-            await asyncio.sleep(0)
         
         # Process delayed sounds (for fireball double-sounds)
         if hasattr(pygame.time, '_delayed_sounds'):
@@ -981,25 +946,6 @@ async def main_loop():
         if wave_transition['state'] != 'idle':
             wave_transition['timer'] += ms
 
-        # Web-specific: Yield control during intensive updates
-        if RUNNING_ON_WEB:
-            await asyncio.sleep(0)
-        
-        # Web-specific optimizations: Reduce particle count and complexity
-        if RUNNING_ON_WEB:
-            # Limit particle count for better performance
-            max_particles = 150  # Reduced from potential higher counts
-            if len(particles) > max_particles:
-                particles = particles[-max_particles:]
-            
-            # Limit wave banner effects for web
-            max_sparks = 50
-            max_smoke = 30
-            if len(wave_banner_sparks) > max_sparks:
-                wave_banner_sparks = wave_banner_sparks[-max_sparks:]
-            if len(wave_banner_smoke) > max_smoke:
-                wave_banner_smoke = wave_banner_smoke[-max_smoke:]
-
         # --- Enable shooting after tutorial overlay is dismissed ---
         if not tutorial_overlay.active and not castle.shooting_enabled:
             # Schedule enable only once
@@ -1093,10 +1039,7 @@ async def main_loop():
                 events = pygame.event.get()
                 # Filter out problematic events that might cause issues on web
                 events = [e for e in events if e.type != pygame.USEREVENT or e.type == MUSIC_END_EVENT]
-                # Yield control after event processing for better web responsiveness
-                await asyncio.sleep(0)
-            except Exception as e:
-                print(f"[ERROR] Event handling error: {e}")
+            except:
                 events = []
         else:
             events = pygame.event.get()
@@ -1111,9 +1054,10 @@ async def main_loop():
                 tutorial_looping = True  # Enable tutorial music looping
                 # Load and play menu music now that warning is dismissed
                 try:
-                    menu_music = tutorial_overlay.MENU_MUSIC
-                    load_and_play_music(menu_music, volume=0.6, loop=-1)
-                except Exception as e:
+                    pygame.mixer.music.load(tutorial_overlay.MENU_MUSIC)
+                    pygame.mixer.music.set_volume(0.6)
+                    pygame.mixer.music.play(-1)
+                except pygame.error as e:
                     print(f"[Audio] Failed to load menu music: {e}")
         elif epilepsy_warning_shown:
             # If warning has been shown before, deactivate it permanently
@@ -1122,18 +1066,6 @@ async def main_loop():
         # --- Handle tutorial overlay loading state ---
         prev_tut_active = getattr(tutorial_overlay, '_prev_active', tutorial_overlay.active)
         prev_loading = getattr(tutorial_overlay, '_prev_loading', False)
-        
-        # Start music when tutorial overlay becomes active and ready (not loading)
-        if (tutorial_overlay.active and not tutorial_overlay.loading and 
-            epilepsy_warning_shown and not prev_tut_active and not getattr(tutorial_overlay, '_music_started', False)):
-            # Load and play menu music now that tutorial overlay is ready
-            try:
-                menu_music = tutorial_overlay.MENU_MUSIC
-                load_and_play_music(menu_music, volume=0.6, loop=-1)
-                tutorial_overlay._music_started = True
-                print("[DEBUG] Tutorial overlay ready - music started")
-            except Exception as e:
-                print(f"[Audio] Failed to load menu music: {e}")
         
         # feed events to options menu first - consume events if options menu is active
         options_consumed_events = options_menu.update(events)
@@ -1306,43 +1238,62 @@ async def main_loop():
         
 
         # ------------------------------------------------------------------
-        # Simplified paddle intro creation for web compatibility
+        # ANTI-FLICKER: Frame-stable paddle intro creation
         # ------------------------------------------------------------------
-        def _create_paddle_intro(side):
-            """Create paddle intro with web-compatible error handling."""
+        def _queue_intro_stable(side):
+            """Create paddle intro with frame stability to prevent flickering."""
             # Only allow paddle intros if tutorial overlay is not active
             if (not tutorial_overlay.active and
                 side not in paddles and all(i.side != side for i in intros)):
                 
-                # Don't create new intros while one is already playing (simplified check)
-                if intro_active:
+                # ANTI-FLICKER: Ensure stable frame timing for intro creation
+                if intro_active:  # Don't create new intros while one is already playing
                     return
                 
-                # Web-compatible intro creation with extensive error handling
+                # ANTI-FLICKER: Force a small delay after game state changes to ensure stability
+                current_frame = pygame.time.get_ticks()
+                if not hasattr(_queue_intro_stable, 'last_score_change'):
+                    _queue_intro_stable.last_score_change = current_frame
+                
+                # Only create intro if score has been stable for at least 100ms
+                if current_frame - _queue_intro_stable.last_score_change < 100:
+                    return
+                
+                # ANTI-FLICKER: Create intro object and validate it's fully initialized
                 try:
-                    print(f"[DEBUG] Creating paddle intro for {side}")
                     new_intro = PaddleIntro(side, sounds, _load_sound, intro_font)
-                    intros.append(new_intro)
                     
-                    # Flash effect
-                    global flash_color, flash_timer
-                    flash_color = (255, 255, 255)
-                    flash_timer = 200
-                    print(f"[DEBUG] Successfully created intro for {side}")
-                    
+                    # Validate critical properties are initialized
+                    if (hasattr(new_intro, 'pos') and hasattr(new_intro, 'phase') and 
+                        hasattr(new_intro, '_paddle_surf') and hasattr(new_intro, 'text_surf')):
+                        intros.append(new_intro)
+                        
+                        # quick white flash
+                        global flash_color, flash_timer
+                        flash_color = (255,255,255)
+                        flash_timer = 200
+                        print(f"[ANTI-FLICKER] Successfully created stable intro for {side}")
+                    else:
+                        print(f"[ANTI-FLICKER] Failed validation for {side} intro - discarded")
+                        
                 except Exception as e:
-                    print(f"[ERROR] Failed to create intro for {side}: {e}")
-                    # Don't crash - just skip this intro
-                    
+                    print(f"[ANTI-FLICKER] Failed to create intro for {side}: {e}")
+        
+        # Track score changes for frame stability
+        if hasattr(_queue_intro_stable, 'last_score') and _queue_intro_stable.last_score != score:
+            _queue_intro_stable.last_score_change = pygame.time.get_ticks()
+        _queue_intro_stable.last_score = score
+        
         # ------------------------------------------------------------------
-        # Unlock new paddles based on score milestones (simplified)
+        # Unlock new paddles based on score milestones using intro animation
         # ------------------------------------------------------------------
+        # Remove the old caching logic and use frame-stable creation instead
         if score >= 30:
-            _create_paddle_intro('top')
+            _queue_intro_stable('top')
         if score >= 100:
-            _create_paddle_intro('left')
+            _queue_intro_stable('left')
         if score >= 200:
-            _create_paddle_intro('right')
+            _queue_intro_stable('right')
         
         for ball in (balls[:] if not paused else []):
             ball.update(dt)
@@ -2069,30 +2020,15 @@ async def main_loop():
 
         # draw / update paddle intro animations on top of scene
         for intro in intros[:]:
-            try:
-                # Web-compatible timing with better error handling
-                ms_clamped = max(1, min(ms, 100))  # Minimum 1ms, maximum 100ms
-                if intro.update(ms_clamped):
-                    # intro finished – activate paddle
-                    print(f"[DEBUG] Paddle intro finished for {intro.side}")
-                    paddles[intro.side] = Paddle(intro.side)
-                    intros.remove(intro)
-                    # --- Schedule tooltip for this paddle after a delay ---
-                    show_time = pygame.time.get_ticks() + 1200  # 1.2s after intro
-                    pending_tooltips.append((intro.side, paddles[intro.side], show_time))
-                    print(f"[DEBUG] Paddle {intro.side} activated and tooltip scheduled")
-                else:
-                    # Intro still running, draw it
-                    intro.draw(scene_surf)
-            except Exception as e:
-                print(f"[ERROR] Paddle intro error for {intro.side}: {e}")
-                # Remove problematic intro to prevent crashes
-                if intro in intros:
-                    intros.remove(intro)
-                # Create paddle immediately as fallback
-                if intro.side not in paddles:
-                    print(f"[DEBUG] Creating fallback paddle for {intro.side}")
-                    paddles[intro.side] = Paddle(intro.side)
+            ms_clamped = max(1, min(ms, 100))  # Minimum 1ms, maximum 100ms
+            if intro.update(ms_clamped):
+                # intro finished – activate paddle
+                paddles[intro.side] = Paddle(intro.side)
+                intros.remove(intro)
+                # --- Schedule tooltip for this paddle after a delay ---
+                show_time = pygame.time.get_ticks() + 1200  # 1.2s after intro
+                pending_tooltips.append((intro.side, paddles[intro.side], show_time))
+            intro.draw(scene_surf)
 
         # Skip regular blit if we are in wave-transition zoom mode
         if wave_transition['state'] == 'idle':
@@ -2200,7 +2136,14 @@ async def main_loop():
             store.draw(screen)
         
         # Single display flip to prevent flickering
-        pygame.display.flip()
+        # Handle pygame-web specific display updates
+        if RUNNING_ON_WEB:
+            try:
+                pygame.display.flip()
+            except:
+                pass  # Ignore display errors on web
+        else:
+            pygame.display.flip()
 
         # ---------------------------------------------------------
         # TRANSITION STATE CHANGES
@@ -2345,17 +2288,20 @@ async def main_loop():
                 wave_start_time = now
                 wave_start_coins = get_coin_count()
                 if wave_transition.get('next_music'):
-                    music_volume = options_menu.get_setting('music_volume', 0.75)
-                    if options_menu.get_setting('music_muted', False):
-                        music_volume = 0
-                    
-                    success = load_and_play_music(wave_transition['next_music'], volume=music_volume, loop=0)
-                    if success:
+                    try:
+                        pygame.mixer.music.load(wave_transition['next_music'])
+                        # Use current music volume from options
+                        music_volume = options_menu.get_setting('music_volume', 0.75)
+                        if options_menu.get_setting('music_muted', False):
+                            pygame.mixer.music.set_volume(0)
+                        else:
+                            pygame.mixer.music.set_volume(music_volume)
+                        pygame.mixer.music.play(0)  # Play once without looping
                         # Timer-based track switching
                         music_end_time = pygame.time.get_ticks() + TRACK_DURATIONS.get(wave_transition['next_music'], 180000)
                         print(f"[Audio] Started wave music: {wave_transition['next_music']}")
-                    else:
-                        print(f"[Audio] Failed to load wave music: {wave_transition['next_music']}")
+                    except Exception as e:
+                        print(f"[Audio] Failed to load wave music: {e}")
             wave_transition.update({
                 'state': 'idle',
                 'active': False,
@@ -2365,17 +2311,14 @@ async def main_loop():
             })
 
         # -----------------------------------------------------------
-        # BACKGROUND MUSIC MANAGEMENT - Improved coordination
+        # BACKGROUND MUSIC MANAGEMENT
         # -----------------------------------------------------------
         if tutorial_overlay.active:
-            # Tutorial/Menu music management
             now_time = pygame.time.get_ticks()
             if _tut_pause_until:
                 # Currently in the silence gap – when time elapses restart music
                 if now_time >= _tut_pause_until:
-                    # Ensure no other music is playing before starting tutorial music
-                    if not pygame.mixer.music.get_busy() or _current_music_track != tutorial_overlay.MENU_MUSIC:
-                        pygame.mixer.music.play(-1, 0.0)
+                    pygame.mixer.music.play(-1, 0.0)
                     last_tut_restart = now_time
                     _tut_pause_until = 0
             else:
@@ -2384,32 +2327,29 @@ async def main_loop():
                     pygame.mixer.music.stop()
                     _tut_pause_until = now_time + TUT_SILENCE_MS
         elif tutorial_looping and epilepsy_warning_shown:
-            # Player exited tutorial – ensure smooth transition to wave music
+            # Player exited tutorial – if we were in gap make sure music resumes
+            # Only start music if epilepsy warning has been shown
             if not pygame.mixer.music.get_busy():
-                # Only start wave music if we have wave music files and are in gameplay
-                if wave >= 1 and WAVE_MUSIC_FILES:
-                    start_random_wave_music()
-                else:
-                    pygame.mixer.music.play(-1, 0.0)
+                pygame.mixer.music.play(-1, 0.0)
             tutorial_looping = False
             _tut_pause_until = 0
         elif epilepsy_warning_shown:
-            # --- Wave music playlist management ---
+            # --- Simple playlist system using hard-coded track durations ---
             # Only manage wave music if epilepsy warning has been shown
             if wave >= 1 and WAVE_MUSIC_FILES and music_end_time and pygame.time.get_ticks() >= music_end_time:
-                # Ensure we're not in tutorial mode before switching music
-                if not tutorial_overlay.active:
-                    next_song = get_next_wave_music()
+                next_song = get_next_wave_music()
+                try:
+                    pygame.mixer.music.load(next_song)
                     music_volume = options_menu.get_setting('music_volume', 0.75)
                     if options_menu.get_setting('music_muted', False):
-                        music_volume = 0
-                    
-                    success = load_and_play_music(next_song, volume=music_volume, loop=0)
-                    if success:
-                        music_end_time = pygame.time.get_ticks() + TRACK_DURATIONS.get(next_song, 180000)
-                        print(f"[Audio] Playing next song by timer: {next_song}")
+                        pygame.mixer.music.set_volume(0)
                     else:
-                        print(f"[Audio] Failed to load next song: {next_song}")
+                        pygame.mixer.music.set_volume(music_volume)
+                    pygame.mixer.music.play(0)
+                    music_end_time = pygame.time.get_ticks() + TRACK_DURATIONS.get(next_song, 180000)
+                    print(f"[Audio] Playing next song by timer: {next_song}")
+                except Exception as e:
+                    print(f"[Audio] Failed to load next song: {e}")
         # --------------------------------------------------------------------
 
         # restart music after scheduled fade-out once the timer has elapsed

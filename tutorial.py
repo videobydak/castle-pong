@@ -21,15 +21,16 @@ class TutorialOverlay:
 
         # -------------------------------------------------------------
         # Background music – loop dedicated menu track
+        # NOTE: Music coordination is now handled by main.py to prevent overlapping tracks
         # -------------------------------------------------------------
-        self.MENU_MUSIC = "menu.mp3"
+        from config import get_audio_file_for_platform
+        self.MENU_MUSIC = get_audio_file_for_platform("menu.mp3")
+        
+        # Don't auto-start music here anymore - let main.py handle it
+        # This prevents conflicts with other music systems
         if auto_start_music:
-            try:
-                pygame.mixer.music.load(self.MENU_MUSIC)
-                pygame.mixer.music.set_volume(0.6)
-                pygame.mixer.music.play(-1)
-            except pygame.error as e:
-                print(f"[Audio] Failed to load menu music '{self.MENU_MUSIC}':", e)
+            print(f"[Audio] Menu music file set to: {self.MENU_MUSIC}")
+            # Music will be started by main.py when tutorial overlay becomes active
 
         # -------------------------------------------------------------
         # Fonts & static graphics

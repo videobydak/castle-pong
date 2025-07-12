@@ -14,6 +14,13 @@ from castle_build_anim import staged_castle_build
 from config import WIDTH, HEIGHT, BLOCK_SIZE, SCALE
 from crack_demo import create_crack_animator
 
+# Check if we're running in a web environment
+try:
+    import platform
+    RUNNING_ON_WEB = platform.system() == "Emscripten"
+except:
+    RUNNING_ON_WEB = False
+
 REPAIR_DELAY = 3000   # wait before repair starts (ms)
 REPAIR_TIME  = 15000  # duration of rebuild animation (ms)
 DAMAGE_ATTRACT_TIME = 4000  # ms – cannons flock toward recent breaches
@@ -535,6 +542,20 @@ class Castle:
     def hit_block(self, block, impact_point=None, impact_angle=None):
         key = (block.x, block.y)
         
+        # Web-compatible error handling wrapper
+        try:
+            return self._hit_block_internal(block, impact_point, impact_angle)
+        except Exception as e:
+            print(f"[ERROR] Block hit failed: {e}")
+            # Fallback: just remove the block without complex logic
+            if block in self.blocks:
+                self.blocks.remove(block)
+                if key in self.block_health:
+                    del self.block_health[key]
+    
+    def _hit_block_internal(self, block, impact_point=None, impact_angle=None):
+        key = (block.x, block.y)
+        
         # Check if this block is currently being rebuilt
         if key in self.destroyed_blocks:
             # Block is being rebuilt - reset to tier 1 and restart rebuild
@@ -653,8 +674,10 @@ class Castle:
                 maybe_spawn_hearts(block)
                 # print("[HEART] Spawn call completed (hit_block)")
             except Exception as e:
-                # print("[HEART] Spawn error:", e)
-                pass
+                if RUNNING_ON_WEB:
+                    print(f"[HEART] Web-compatible skip: {e}")
+                else:
+                    print(f"[HEART] Spawn error: {e}")
 
             # ----------------------------------------------
             #  Coin drop on final destruction (hit_block)
@@ -663,7 +686,10 @@ class Castle:
                 from coin import maybe_spawn_coins
                 maybe_spawn_coins(block)
             except Exception as e:
-                print("[COIN] Spawn error:", e)
+                if RUNNING_ON_WEB:
+                    print(f"[COIN] Web-compatible skip: {e}")
+                else:
+                    print(f"[COIN] Spawn error: {e}")
 
         # Remove cracks if block is destroyed
         if key in self.block_cracks:
@@ -746,30 +772,48 @@ class Castle:
         if not getattr(self, '_skip_debris', False):
             # DEBRIS FIX: Don't create debris during paddle intro animations
             if not getattr(self, '_pause_rebuild', False):
-                # Approximate incoming direction from impact_angle if provided; else upward
-                if impact_angle is not None:
-                    incoming_dir = pygame.Vector2(math.cos(impact_angle), math.sin(impact_angle))
-                else:
-                    incoming_dir = pygame.Vector2(0, -1)
+                try:
+                    # Approximate incoming direction from impact_angle if provided; else upward
+                    if impact_angle is not None:
+                        incoming_dir = pygame.Vector2(math.cos(impact_angle), math.sin(impact_angle))
+                    else:
+                        incoming_dir = pygame.Vector2(0, -1)
 
-                color_pair = self.block_colors.get(key, ((110, 110, 110), (90, 90, 90)))
-                debris_count = 30
-                base_dir = (-incoming_dir.normalize()) if incoming_dir.length_squared() != 0 else pygame.Vector2(0, -1)
-                for _ in range(debris_count):
-                    angle_variation = random.uniform(-40, 40)
-                    speed = random.uniform(2, 6) * SCALE
-                    vel = base_dir.rotate(angle_variation) * speed
-                    size = int(random.randint(2, 4) * SCALE)
-                    deb = {'pos': pygame.Vector2(block.centerx, block.centery), 'vel': vel,
-                           'color': random.choice(color_pair), 'size': size,
-                           'friction': random.uniform(0.94, 0.985)}
-                    if random.random() < 0.3:
-                        deb['dig_delay'] = random.randint(0, int(15 * SCALE))
-                        deb['dig_frames'] = random.randint(int(15 * SCALE), int(90 * SCALE))
-                    self.debris.append(deb)
+                    color_pair = self.block_colors.get(key, ((110, 110, 110), (90, 90, 90)))
+                    
+                    # Reduce debris count for web performance
+                    debris_count = 15 if RUNNING_ON_WEB else 30
+                    base_dir = (-incoming_dir.normalize()) if incoming_dir.length_squared() != 0 else pygame.Vector2(0, -1)
+                    
+                    for _ in range(debris_count):
+                        angle_variation = random.uniform(-40, 40)
+                        speed = random.uniform(2, 6) * SCALE
+                        vel = base_dir.rotate(angle_variation) * speed
+                        size = int(random.randint(2, 4) * SCALE)
+                        deb = {'pos': pygame.Vector2(block.centerx, block.centery), 'vel': vel,
+                               'color': random.choice(color_pair), 'size': size,
+                               'friction': random.uniform(0.94, 0.985)}
+                        
+                        # Reduce complex digging effects for web
+                        if not RUNNING_ON_WEB and random.random() < 0.3:
+                            deb['dig_delay'] = random.randint(0, int(15 * SCALE))
+                            deb['dig_frames'] = random.randint(int(15 * SCALE), int(90 * SCALE))
+                        
+                        self.debris.append(deb)
+                except Exception as e:
+                    if RUNNING_ON_WEB:
+                        print(f"[DEBRIS] Web-compatible skip: {e}")
+                    else:
+                        print(f"[DEBRIS] Spawn error: {e}")
 
                 # Apply rebuild setbacks & debris for in-progress blocks
-                self._apply_rebuild_setback()
+                try:
+                    self._apply_rebuild_setback()
+                except Exception as e:
+                    if RUNNING_ON_WEB:
+                        print(f"[REBUILD] Web-compatible skip: {e}")
+                    else:
+                        print(f"[REBUILD] Error: {e}")
 
         # Clear the temporary skip flag if it was set by shatter_block
         if hasattr(self, '_skip_debris'):
@@ -943,6 +987,19 @@ class Castle:
 
     def shatter_block(self, block, incoming_dir):
         """Destroy a block with visual debris based on incoming ball direction."""
+        try:
+            return self._shatter_block_internal(block, incoming_dir)
+        except Exception as e:
+            print(f"[ERROR] Block shatter failed: {e}")
+            # Fallback: just remove the block
+            key = (block.x, block.y)
+            if block in self.blocks:
+                self.blocks.remove(block)
+                if key in self.block_health:
+                    del self.block_health[key]
+    
+    def _shatter_block_internal(self, block, incoming_dir):
+        """Internal shatter logic with full error handling."""
         key = (block.x, block.y)
         color_pair = self.block_colors.get(key, ((110,110,110),(90,90,90)))
 
@@ -963,8 +1020,10 @@ class Castle:
                 maybe_spawn_hearts(block)
                 # print("[HEART] Spawn call completed")
             except Exception as e:
-                # print("[HEART] Spawn error:", e)
-                pass
+                if RUNNING_ON_WEB:
+                    print(f"[HEART] Web-compatible skip: {e}")
+                else:
+                    print(f"[HEART] Spawn error: {e}")
 
             # --------------------------------------------------------------
             #  Coin drop on block destruction
@@ -973,7 +1032,10 @@ class Castle:
                 from coin import maybe_spawn_coins
                 maybe_spawn_coins(block)
             except Exception as e:
-                print("[COIN] Spawn error:", e)
+                if RUNNING_ON_WEB:
+                    print(f"[COIN] Web-compatible skip: {e}")
+                else:
+                    print(f"[COIN] Spawn error: {e}")
 
         # Fewer chips for reinforced hits that don't destroy
         if tier > 2 and not will_destroy:

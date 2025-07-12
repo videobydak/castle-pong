@@ -73,9 +73,14 @@ class EpilepsyWarning:
     
     def _render_outline(self, text, font, color, outline_color, outline_width):
         """Render text with outline."""
-        # Create outline by rendering text multiple times with offset
-        outline_surf = pygame.Surface((1000, 200), pygame.SRCALPHA)
+        # First render the text to get its dimensions
         text_surf = font.render(text, True, color)
+        text_w, text_h = text_surf.get_size()
+        
+        # Create outline surface sized to fit the text plus outline padding
+        outline_w = text_w + 2 * outline_width
+        outline_h = text_h + 2 * outline_width
+        outline_surf = pygame.Surface((outline_w, outline_h), pygame.SRCALPHA)
         
         # Draw outline
         for dx in range(-outline_width, outline_width + 1):
@@ -87,12 +92,7 @@ class EpilepsyWarning:
         # Draw main text
         outline_surf.blit(text_surf, (outline_width, outline_width))
         
-        # Crop to actual size
-        actual_rect = outline_surf.get_bounding_rect()
-        if actual_rect.width > 0 and actual_rect.height > 0:
-            return outline_surf.subsurface(actual_rect)
-        else:
-            return text_surf
+        return outline_surf
     
     def update(self, events, dt):
         """Update the epilepsy warning screen."""
