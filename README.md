@@ -88,7 +88,6 @@ pyinstaller ^
     --onefile ^
     --windowed ^
     --name CastlePong ^
-    --icon assets\\castle.ico ^       # optional, provide your own icon
     --add-data "*.wav;." ^
     --add-data "*.aac;." ^
     --add-data "*.mp3;." ^
@@ -113,7 +112,6 @@ pyinstaller \
     --noconfirm \
     --windowed \
     --name "Castle Pong" \
-    --icon assets/castle.icns \
     --add-data "*.wav:." \
     --add-data "*.aac:." \
     --add-data "*.mp3:." \
