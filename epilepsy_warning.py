@@ -23,7 +23,7 @@ class EpilepsyWarning:
         self.instruction_font = self._load_pixel_font(20)
         
         # Create warning text surfaces
-        self.title_surf = self._render_outline("EPILEPSY WARNING", self.title_font, 
+        self.title_surf = self._render_outline("EPILEPSY WARNING!!", self.title_font, 
                                               (255, 255, 0), (0, 0, 0), 2)
         
         # Warning text lines
