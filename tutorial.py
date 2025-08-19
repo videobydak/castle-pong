@@ -328,21 +328,44 @@ class TutorialOverlay:
         rect = title.get_rect(center=(WIDTH // 2, 120))
         surface.blit(title, rect)
 
+        # Define column widths and spacing for better layout
+        column_widths = {
+            'rank': 120,     # RANK column - wider for better spacing
+            'name': 400,     # NAME column - much wider for longer names
+            'wave': 150,     # WAVE column - wider for better spacing
+            'time': 200,     # TIME column - wider for MM:SS format
+            'score': 200     # SCORE column - wider for large numbers
+        }
+        
+        # Calculate total width of all columns
+        total_columns_width = sum(column_widths.values())
+        
+        # Calculate starting X position to center the entire column group
+        start_x = (WIDTH - total_columns_width) // 2
+        
+        # Calculate X positions for each column
+        column_positions = {}
+        current_x = start_x
+        for col_name, width in column_widths.items():
+            column_positions[col_name] = current_x
+            current_x += width
+
         # Draw column headers
         header_font = self._load_pixel_font(20)
         header_y = rect.bottom + 15
+        
         rank_header = header_font.render("RANK", True, (200, 200, 200))
         name_header = header_font.render("NAME", True, (200, 200, 200))
         wave_header = header_font.render("WAVE", True, (200, 200, 200))
         time_header = header_font.render("TIME", True, (200, 200, 200))
         score_header = header_font.render("SCORE", True, (200, 200, 200))
         
-        # Position headers
-        surface.blit(rank_header, (50, header_y))
-        surface.blit(name_header, (150, header_y))
-        surface.blit(wave_header, (350, header_y))
-        surface.blit(time_header, (450, header_y))
-        surface.blit(score_header, (580, header_y))
+        # Position headers using calculated positions
+        surface.blit(rank_header, (column_positions['rank'], header_y))
+        surface.blit(name_header, (column_positions['name'], header_y))
+        surface.blit(wave_header, (column_positions['wave'], header_y))
+        surface.blit(time_header, (column_positions['time'], header_y))
+        surface.blit(score_header, (column_positions['score'], header_y))
 
         y = header_y + 35
         rank_font = self._load_pixel_font(28)
@@ -355,17 +378,18 @@ class TutorialOverlay:
             
             # Render each column
             rank_txt = rank_font.render(f"{idx}", True, WHITE)
-            name_txt = rank_font.render(f"{row['name'][:10]}", True, WHITE)
+            # Allow longer names to display (up to 20 characters instead of 10)
+            name_txt = rank_font.render(f"{row['name'][:20]}", True, WHITE)
             wave_txt = rank_font.render(f"{row.get('wave', 1)}", True, WHITE)
             time_txt = rank_font.render(time_str, True, WHITE)
             score_txt = rank_font.render(f"{row.get('score', 0)}", True, WHITE)
             
-            # Position each column
-            surface.blit(rank_txt, (50, y))
-            surface.blit(name_txt, (150, y))
-            surface.blit(wave_txt, (350, y))
-            surface.blit(time_txt, (450, y))
-            surface.blit(score_txt, (580, y))
+            # Position each column using calculated positions
+            surface.blit(rank_txt, (column_positions['rank'], y))
+            surface.blit(name_txt, (column_positions['name'], y))
+            surface.blit(wave_txt, (column_positions['wave'], y))
+            surface.blit(time_txt, (column_positions['time'], y))
+            surface.blit(score_txt, (column_positions['score'], y))
             y += 32
 
         hint_font = self._load_pixel_font(18)
