@@ -49,7 +49,7 @@ class PaddleIntro:
         # CRITICAL FIX: Initialize position immediately to prevent flickering
         self.pos = self.start_pos.copy()
 
-        # Pre-render NEW PADDLE text
+        # Pre-render NEW PADDLE text - keep original surface for reuse
         self.text_surf = intro_font.render("NEW PADDLE!", True, (200, 30, 200))
         self.text_rect = self.text_surf.get_rect(center=(WIDTH // 2, HEIGHT // 3))
 
@@ -292,99 +292,18 @@ class PaddleIntro:
         surf.blit(bubble, (bx, by))
         surf.blit(tail, (pos[0]-10, by+h-2))
 
-    def draw(self, surf):
-        # Skip drawing for silent preloads
-        if self.silent_preload:
-            return
-            
-        # EDGE CASE FIX: Ensure position is valid before drawing
-        if not hasattr(self, 'pos') or self.pos is None:
-            return
-
-        # Use cached paddle surface instead of creating new one every frame
-        try:
-            rot_surf = pygame.transform.rotate(self._paddle_surf, self.angle)
-            rot_rect = rot_surf.get_rect(center=(int(self.pos.x), int(self.pos.y)))
-        except (ValueError, OverflowError):
-            # Handle potential rotation errors on first frame
-            rot_surf = self._paddle_surf
-            rot_rect = rot_surf.get_rect(center=(int(self.pos.x), int(self.pos.y)))
-
-        # draw radial burst particles (purple swirling and fluttering)
-        for p in self.burst:
-            p.draw(surf)
-
-        surf.blit(rot_surf, rot_rect)
-
-        # Flash NEW PADDLE text during spin phase and fade out on exit
-        if self.phase in ('spin', 'fly_out'):  # still show text during exit, but banner only in spin
-            phase_t = (min(1.0, self.timer / max(1, self.SPIN_TIME)) if self.phase=='spin'
-                        else min(1.0, self.timer / max(1, self.EXIT_TIME)))
-
-            if self.phase == 'spin':
-                # pulsing alpha
-                alpha = int(200 + 55 * math.sin(self.timer / 100))
-            else:  # fly_out – fade
-                alpha = int(255 * (1 - phase_t))
-
-            # --- sweeping white banner behind text (spin phase only) ---
-            banner_height = self.text_rect.height + 14
-            if self.phase == 'spin':
-                # --- sweeping white banner behind text (spin phase only) ---
-                if phase_t < 0.2:  # sweep in
-                    sweep_t = phase_t / 0.2
-                    banner_x = -WIDTH + sweep_t * WIDTH
-                elif phase_t > 0.8:  # sweep out
-                    sweep_t = (phase_t - 0.8) / 0.2
-                    banner_x = sweep_t * WIDTH
-                else:  # hold
-                    banner_x = 0
-
-                banner_rect = pygame.Rect(int(banner_x), self.text_rect.centery - banner_height//2, WIDTH, banner_height)
-                banner_surf = pygame.Surface((banner_rect.width, banner_rect.height), pygame.SRCALPHA)
-                # add subtle alpha for streaky look
-                banner_surf.fill((255,255,255,230))
-                surf.blit(banner_surf, banner_rect)
-
-            # EDGE CASE FIX: Safer text surface handling
-            try:
-                txt = self.text_surf.copy().convert_alpha()
-                txt.set_alpha(max(0, min(255, alpha)))  # Clamp alpha to valid range
-                surf.blit(txt, self.text_rect)
-            except (pygame.error, ValueError):
-                # Fallback: draw text without alpha if copy fails
-                surf.blit(self.text_surf, self.text_rect)
-
-            # (Speech bubble removed – handled by PaddleTooltip in main loop)
-
-        return
-
-    def _draw_speech_bubble(self, surf, text, pos, alpha=255):
-        # Draws a pixel-art style speech bubble with the given text at pos (center bottom of bubble)
-        # pos: (x, y) tuple for the tip of the bubble tail
-        font = load_font('PressStart2P-Regular.ttf', 18)
-        lines = text.split(". ")  # Split into lines for better fit
-        rendered = [font.render(line, True, (0,0,0)) for line in lines]
-        w = max(r.get_width() for r in rendered) + 24
-        h = sum(r.get_height() for r in rendered) + 24
-        bubble = pygame.Surface((w, h), pygame.SRCALPHA)
-        # White fill, black border
-        pygame.draw.rect(bubble, (255,255,255,int(alpha)), (0,0,w,h), border_radius=8)
-        pygame.draw.rect(bubble, (0,0,0,int(alpha)), (0,0,w,h), 3, border_radius=8)
-        # Draw text
-        y = 12
-        for r in rendered:
-            r.set_alpha(alpha)
-            bubble.blit(r, ((w - r.get_width())//2, y))
-            y += r.get_height() + 2
-        # Draw tail (triangle)
-        tail = pygame.Surface((20, 16), pygame.SRCALPHA)
-        pygame.draw.polygon(tail, (255,255,255,int(alpha)), [(10,0),(0,16),(20,16)])
-        pygame.draw.polygon(tail, (0,0,0,int(alpha)), [(10,0),(0,16),(20,16)], 2)
-        # Position bubble and tail
-        bx, by = int(pos[0] - w//2), int(pos[1])
-        surf.blit(bubble, (bx, by))
-        surf.blit(tail, (pos[0]-10, by+h-2))
+    def _render_text_with_fade(self, dest_surface: pygame.Surface, alpha: int):
+        """Render text with color fading instead of alpha to avoid Mac issues."""
+        if alpha >= 255:
+            dest_surface.blit(self.text_surf, self.text_rect)
+        else:
+            # Render with faded color instead of alpha
+            fade_factor = alpha / 255.0
+            faded_color = (int(200 * fade_factor), int(30 * fade_factor), int(200 * fade_factor))
+            # Create new surface with faded color (avoid alpha operations)
+            font = pygame.font.Font(None, 48)  # Same as intro_font
+            faded_surf = font.render("NEW PADDLE!", True, faded_color)
+            dest_surface.blit(faded_surf, self.text_rect)
 
     def draw(self, surf):
         # Skip drawing for silent preloads
@@ -440,14 +359,8 @@ class PaddleIntro:
                 banner_surf.fill((255,255,255,230))
                 surf.blit(banner_surf, banner_rect)
 
-            # EDGE CASE FIX: Safer text surface handling
-            try:
-                txt = self.text_surf.copy().convert_alpha()
-                txt.set_alpha(max(0, min(255, alpha)))  # Clamp alpha to valid range
-                surf.blit(txt, self.text_rect)
-            except (pygame.error, ValueError):
-                # Fallback: draw text without alpha if copy fails
-                surf.blit(self.text_surf, self.text_rect)
+            # Use color fading instead of alpha
+            self._render_text_with_fade(surf, alpha)
 
             # (Speech bubble removed – handled by PaddleTooltip in main loop)
 

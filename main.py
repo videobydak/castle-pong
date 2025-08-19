@@ -282,11 +282,11 @@ WAVE_MUSIC_FILES = [f for (f, _d) in BACKGROUND_MUSIC_TRACKS if resource_exists(
 # Map filename -> hard-coded duration (ms) for timer-based track switching
 TRACK_DURATIONS = {f: dur for (f, dur) in BACKGROUND_MUSIC_TRACKS}
 
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
+screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.HWSURFACE | pygame.DOUBLEBUF)
 clock  = pygame.time.Clock()
-font       = pygame.font.SysFont(None, 36)
+font       = pygame.font.Font(None, 36)
 # small pixel font
-small_font = pygame.font.SysFont(None, 18)
+small_font = pygame.font.Font(None, 18)
 
 # Generate a background grass texture once
 BACKGROUND = generate_grass(WIDTH, HEIGHT)  # Full opacity to match menu
@@ -436,7 +436,7 @@ barrier_timer = 0
 shoot_enable_time = 0
 
 # --- Wave announcement text ---------------------------------------------
-wave_font      = pygame.font.SysFont(None, 72, italic=True)
+wave_font      = pygame.font.Font(None, 72)
 wave_text      = ""
 wave_text_time = 0  # ms remaining
 
@@ -447,7 +447,7 @@ session_start_time = 0  # ms since pygame.init()
 session_active_ms = 0  # cumulative active in-wave time this session
 
 # --- Paddle unlock animation -------------------------------------------
-intro_font = pygame.font.SysFont(None, 48, italic=True)
+intro_font = pygame.font.Font(None, 48)
 
 # Holds active intro animations (created when a new paddle unlocks)
 intros = []
@@ -576,10 +576,10 @@ def return_to_main_menu(show_menu=True):
     power_timers = {}
     barrier_timer = 0
     shoot_enable_time = 0
-    wave_font      = pygame.font.SysFont(None, 72, italic=True)
+    wave_font      = pygame.font.Font(None, 72)
     wave_text      = ""
     wave_text_time = 0
-    intro_font     = pygame.font.SysFont(None, 48, italic=True)
+    intro_font     = pygame.font.Font(None, 48)
     intros         = []
     game_over_sfx_played = False
     music_restart_time   = 0
@@ -1046,8 +1046,9 @@ while running:
         wave_start_time = now
         wave_start_coins = get_coin_count()
         # Record the session start time at the beginning of the first wave
-        if wave == 1 and session_start_time == 0:
+        if session_start_time == 0:
             session_start_time = now
+            print(f"[Timer] Session started at {session_start_time}ms")
         
     tutorial_overlay._prev_active = tutorial_overlay.active
     tutorial_overlay._prev_loading = tutorial_overlay.loading
@@ -2102,10 +2103,18 @@ while running:
             # Show the End of Wave Screen
             # Safety check: ensure wave_start_time is valid
             if wave_start_time == 0:
+                print("[Timer] WARNING: wave_start_time was 0, using fallback")
                 wave_start_time = now - 30000  # 30 seconds ago as fallback
             
             wave_play_time_ms = now - wave_start_time
             session_active_ms += wave_play_time_ms
+            
+            # Ensure session_start_time is set for proper absolute timing
+            if session_start_time == 0:
+                print("[Timer] WARNING: session_start_time was 0, setting to current accumulated time")
+                session_start_time = now - session_active_ms
+            
+            print(f"[Timer] Wave {wave} completed - Wave time: {wave_play_time_ms}ms, Total session: {session_active_ms}ms")
             end_of_wave_screen.show(score, session_active_ms, wave_start_coins, wave)
             wave_transition['eos_shown'] = True
         
@@ -2191,6 +2200,7 @@ while running:
             # Initialize wave timing for the new wave
             wave_start_time = now
             wave_start_coins = get_coin_count()
+            print(f"[Timer] Wave {wave} started at {wave_start_time}ms")
             if wave_transition.get('next_music'):
                 try:
                     pygame.mixer.music.load(wave_transition['next_music'])
@@ -2280,10 +2290,23 @@ while running:
         # ----------------------------------------------------------------
         try:
             import leaderboard as _lb
-            if session_start_time:
+            
+            # Calculate complete session duration including current wave
+            if session_start_time > 0:
+                # Use absolute time from session start to now
                 session_duration_ms = pygame.time.get_ticks() - session_start_time
+            elif wave_start_time > 0:
+                # Fallback: if session_start_time is missing, use current wave time + accumulated time
+                current_wave_time = pygame.time.get_ticks() - wave_start_time
+                session_duration_ms = session_active_ms + current_wave_time
             else:
-                session_duration_ms = 0
+                # Last resort: use accumulated time only (should never happen, but prevents 0)
+                session_duration_ms = max(session_active_ms, 30000)  # minimum 30 seconds
+            
+            # Ensure we never submit 0 duration (impossible for a real game)
+            session_duration_ms = max(session_duration_ms, 1000)  # minimum 1 second
+            
+            print(f"[Timer] Game over - Final session duration: {session_duration_ms}ms ({session_duration_ms/1000:.1f}s)")
             _lb.handle_session_end(final_score, wave, session_duration_ms)
         except Exception as _e:
             print("[Leaderboard] Failed to submit session:", _e)
@@ -2313,6 +2336,7 @@ while running:
         wave_start_coins = 0
         session_start_time = 0
         session_active_ms = 0  # cumulative active in-wave time this session
+        print("[Timer] Game state reset - all timers cleared")
         # Reset coin and store state
         clear_coins()
         clear_hearts()
@@ -2327,10 +2351,10 @@ while running:
         power_timers = {}
         barrier_timer = 0
         shoot_enable_time = 0
-        wave_font      = pygame.font.SysFont(None, 72, italic=True)
+        wave_font      = pygame.font.Font(None, 72)
         wave_text      = ""
         wave_text_time = 0
-        intro_font = pygame.font.SysFont(None, 48, italic=True)
+        intro_font = pygame.font.Font(None, 48)
         intros = []
         game_over_sfx_played = False
         music_restart_time = 0

@@ -6,7 +6,6 @@ from config import WIDTH, HEIGHT, WHITE, SCALE, YELLOW, get_control_key
 from typing import Optional, Dict, Any
 from coin import get_coin_count
 import leaderboard  # Local high-score & Google Sheets submission
-from name_prompt import NamePrompt
 
 
 class EndOfWaveScreen:
@@ -62,6 +61,11 @@ class EndOfWaveScreen:
         self.pixel_font_medium = self._load_pixel_font(36)
         self.pixel_font_small = self._load_pixel_font(24)
         
+        # Pre-render all text surfaces once to avoid per-frame rendering
+        self._heading_surfaces = {}
+        self._button_surfaces = {}
+        self._prerender_text_surfaces()
+        
         # Animation timings (in ms)
         self.HEADING_FADE_TIME = 500
         self.HEADING_DELAY = 200
@@ -92,8 +96,7 @@ class EndOfWaveScreen:
         
         self.completion_time = 0
         
-        self.name_prompt = None  # Will be NamePrompt when needed
-        self.leaderboard_thread_started = False
+        # Name prompts now only happen at game over, not per-wave
 
         # Buttons
         self.continue_button = None
@@ -104,29 +107,26 @@ class EndOfWaveScreen:
         self.selected_action = None  # 'continue' or 'shop'
         self.selected_button = 0  # 0 = continue, 1 = shop
         
-        # Track if we've already prompted for name in this session
-        self.name_prompted_this_session = False
+        # No longer track per-wave name prompts
         
         # Input blocking delay to prevent accidental input from gameplay
         self.input_block_duration = 800  # ms to block input at start
         self.input_block_timer = 0
     
     def _create_background(self):
-        """Create a stable background surface."""
-        # Two-layer background: an opaque black surface ensures that
-        # underlying frame buffers never bleed through, while a secondary
-        # semi-transparent overlay provides the desired darkening effect
-        # without introducing on-going flicker.
+        """Create a stable background surface without alpha operations."""
+        # Simple solid background to avoid any alpha blending issues on Mac
         self.background = pygame.Surface((WIDTH, HEIGHT))
-        self.background.fill((0, 0, 0))  # Solid black base
-        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 200))      # Semi-transparent dark overlay
-        self.background.blit(overlay, (0, 0))
+        self.background.fill((0, 0, 0))  # Solid black background
         
     def _load_pixel_font(self, size: int) -> pygame.font.Font:
-        """Load pixel font with fallback."""
-        from utils import load_font
-        return load_font('PressStart2P-Regular.ttf', size)
+        """Load pixel font with fallback - use direct Font for Mac compatibility."""
+        try:
+            from utils import load_font
+            return load_font('PressStart2P-Regular.ttf', size)
+        except:
+            # Direct fallback to avoid any potential font loading issues on Mac
+            return pygame.font.Font(None, size)
     
     def _get_time_bonus_multiplier(self, completion_time_seconds: float) -> float:
         """Calculate time bonus multiplier based on completion time."""
@@ -246,7 +246,9 @@ class EndOfWaveScreen:
         pygame.draw.rect(screen, continue_bg_color, self.continue_button)
         pygame.draw.rect(screen, continue_border_color, self.continue_button, 3 if continue_selected else 2)
         
-        continue_text = self.pixel_font_small.render("CONTINUE", True, continue_text_color)
+        # Use pre-rendered button text
+        continue_key = 'CONTINUE_SELECTED' if continue_selected else 'CONTINUE'
+        continue_text = self._button_surfaces[continue_key]
         continue_rect = continue_text.get_rect(center=self.continue_button.center)
         screen.blit(continue_text, continue_rect)
         
@@ -259,7 +261,9 @@ class EndOfWaveScreen:
         pygame.draw.rect(screen, shop_bg_color, self.shop_button)
         pygame.draw.rect(screen, shop_border_color, self.shop_button, 3 if shop_selected else 2)
         
-        shop_text = self.pixel_font_small.render("SHOP", True, shop_text_color)
+        # Use pre-rendered button text
+        shop_key = 'SHOP_SELECTED' if shop_selected else 'SHOP'
+        shop_text = self._button_surfaces[shop_key]
         shop_rect = shop_text.get_rect(center=self.shop_button.center)
         screen.blit(shop_text, shop_rect)
     
@@ -340,7 +344,7 @@ class EndOfWaveScreen:
     
     def hide(self):
         """Hide the End of Wave Screen."""
-        print(f"[EndOfWave] hide() called, resetting name_prompted_this_session from {self.name_prompted_this_session} to False")
+        print("[EndOfWave] hide() called - no longer using per-wave name prompts")
         self.active = False
         self.state = 'idle'
         self.selected_action = None
@@ -351,11 +355,12 @@ class EndOfWaveScreen:
         self.timer = 0
         self._stop_all_sounds()
         
-        # Reset session flag when hiding (new session starting)
-        self.name_prompted_this_session = False
+        # No longer track per-wave name prompts
         
         # Reset input blocking timer
         self.input_block_timer = 0
+        
+        # No longer using text cache
         
         # Ensure all animation states are reset
         for key in self.animated_values:
@@ -413,28 +418,7 @@ class EndOfWaveScreen:
         # Update heading fade-ins
         self._update_heading_animations(dt_ms)
 
-        # Handle name prompt lifecycle
-        if self.name_prompt is not None:
-            if self.name_prompt.canceled:
-                # User canceled name entry, just continue without submitting
-                self.name_prompt = None
-                self.leaderboard_thread_started = True  # Prevent re-prompting
-            elif self.name_prompt.done and not self.leaderboard_thread_started:
-                # Save new name and submit to leaderboard
-                if self.name_prompt.name:
-                    leaderboard.set_player_name(self.name_prompt.name)
-                # Only update local high score, don't submit to remote leaderboard
-                # (Remote submission happens at game over with full session data)
-                if self._wave_number is not None:
-                    leaderboard.handle_end_of_wave(self.total_score, self._wave_number, self._session_duration_ms)
-                    print(f"[EndOfWave] Submitted wave {self._wave_number} score: {self.total_score}")
-                self.leaderboard_thread_started = True
-                # Clear name prompt but don't auto-continue, let user choose
-                self.name_prompt = None
-        
-        # While prompt active, we don't progress animations further
-        if self.name_prompt is not None and self.name_prompt.active:
-            return
+        # No longer handle name prompts per-wave - they only happen at game over
     
     def _is_current_step_complete(self) -> bool:
         """Check if the current sequence step is complete."""
@@ -478,23 +462,13 @@ class EndOfWaveScreen:
             # Create buttons for user interaction and reset selection
             self.selected_button = 0
             self._create_buttons()
-            # Check for new wave best and prompt for name if needed
-            print(f"[EndOfWave] Checking for name prompt: wave={self._wave_number}, score={self.total_score}, duration={self._session_duration_ms}")
+            # Submit wave score silently without prompting for name
+            # Name prompts now only happen at game over for session records
+            print(f"[EndOfWave] Auto-submitting wave score: wave={self._wave_number}, score={self.total_score}, duration={self._session_duration_ms}")
             if self._wave_number is not None:
-                is_new_best = leaderboard.is_new_wave_best(self._wave_number, self.total_score, self._session_duration_ms)
-                print(f"[EndOfWave] is_new_wave_best result: {is_new_best}")
-                print(f"[EndOfWave] name_prompt is None: {self.name_prompt is None}")
-                print(f"[EndOfWave] name_prompted_this_session: {self.name_prompted_this_session}")
-            if (self._wave_number is not None and 
-                leaderboard.is_new_wave_best(self._wave_number, self.total_score, self._session_duration_ms) and 
-                self.name_prompt is None and not self.name_prompted_this_session):
-                print(f"[EndOfWave] Creating name prompt!")
-                current_name = leaderboard.get_player_name()
-                self.name_prompt = NamePrompt(current_name)
-                self.leaderboard_thread_started = False
-                self.name_prompted_this_session = True
-            else:
-                print(f"[EndOfWave] Not creating name prompt")
+                # Submit wave score using current player name without prompting
+                leaderboard.handle_end_of_wave(self.total_score, self._wave_number, self._session_duration_ms)
+                print(f"[EndOfWave] Wave {self._wave_number} score submitted automatically")
     
     def _show_heading_and_animate(self, heading: str, value_key: str):
         """Show a heading and start animating its value."""
@@ -592,6 +566,34 @@ class EndOfWaveScreen:
                 if self.heading_alpha[i] < target_alpha:
                     self.heading_alpha[i] = min(target_alpha, self.heading_alpha[i] + (255 * dt_ms / self.HEADING_FADE_TIME))
     
+    def _prerender_text_surfaces(self):
+        """Pre-render all text surfaces at different alpha levels to avoid runtime alpha operations."""
+        # Pre-render headings at multiple alpha levels (Mac can't handle runtime alpha well)
+        alpha_levels = [0, 64, 128, 192, 255]
+        for heading in self.headings:
+            self._heading_surfaces[heading] = {}
+            for alpha in alpha_levels:
+                if alpha == 255:
+                    # Full opacity - direct render
+                    self._heading_surfaces[heading][alpha] = self.pixel_font_medium.render(heading, True, (255, 255, 255))
+                else:
+                    # Fade the color instead of using alpha
+                    fade_factor = alpha / 255.0
+                    faded_color = (int(255 * fade_factor), int(255 * fade_factor), int(255 * fade_factor))
+                    self._heading_surfaces[heading][alpha] = self.pixel_font_medium.render(heading, True, faded_color)
+        
+        # Pre-render button text (no alpha needed for buttons)
+        self._button_surfaces['CONTINUE'] = self.pixel_font_small.render("CONTINUE", True, WHITE)
+        self._button_surfaces['CONTINUE_SELECTED'] = self.pixel_font_small.render("CONTINUE", True, (255, 255, 0))
+        self._button_surfaces['SHOP'] = self.pixel_font_small.render("SHOP", True, WHITE)
+        self._button_surfaces['SHOP_SELECTED'] = self.pixel_font_small.render("SHOP", True, (255, 255, 0))
+    
+    def _get_closest_alpha_surface(self, heading: str, target_alpha: int):
+        """Get the pre-rendered surface closest to the target alpha."""
+        alpha_levels = [0, 64, 128, 192, 255]
+        closest_alpha = min(alpha_levels, key=lambda x: abs(x - target_alpha))
+        return self._heading_surfaces[heading][closest_alpha]
+    
     def draw(self, screen: pygame.Surface):
         """Draw the End of Wave Screen."""
         if not self.active or self.state == 'complete':
@@ -608,18 +610,19 @@ class EndOfWaveScreen:
         
         for i, heading in enumerate(self.headings):
             if self.heading_alpha[i] > 0:
-                # Draw heading
+                # Draw heading using pre-rendered surface at closest alpha level
                 alpha = int(self.heading_alpha[i])
-                heading_surf = self.pixel_font_medium.render(heading, True, (255, 255, 255)).convert_alpha()
-                heading_surf.set_alpha(alpha)
+                heading_surf = self._get_closest_alpha_surface(heading, alpha)
                 heading_rect = heading_surf.get_rect(center=(WIDTH // 2, y_offset))
                 screen.blit(heading_surf, heading_rect)
                 
-                # Draw value
+                # Draw value - render with faded color instead of alpha (same technique as paddle text)
                 value_text = self._get_value_text(i)
                 if value_text:
-                    value_surf = self.pixel_font_large.render(value_text, True, (255, 255, 0)).convert_alpha()
-                    value_surf.set_alpha(alpha)
+                    fade_factor = alpha / 255.0
+                    # Use faded yellow color instead of alpha operations
+                    faded_yellow = (int(255 * fade_factor), int(255 * fade_factor), 0)
+                    value_surf = self.pixel_font_large.render(value_text, True, faded_yellow)
                     value_rect = value_surf.get_rect(center=(WIDTH // 2, y_offset + 40))
                     screen.blit(value_surf, value_rect)
                 
@@ -627,9 +630,6 @@ class EndOfWaveScreen:
         
         # Draw buttons
         self._draw_buttons(screen)
-        # Draw name prompt overlay if active
-        if self.name_prompt is not None:
-            self.name_prompt.draw(screen)
     
     def _get_value_text(self, heading_index: int) -> str:
         """Get the formatted value text for a heading."""
@@ -661,10 +661,7 @@ class EndOfWaveScreen:
         if self.input_block_timer > 0:
             return True  # Consume events but don't process them
         
-        # First give chance to name prompt
-        if self.name_prompt is not None and self.name_prompt.active:
-            if self.name_prompt.handle_event(event):
-                return True
+        # No longer handle name prompt events per-wave
 
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:  # Left click
@@ -720,23 +717,12 @@ class EndOfWaveScreen:
                     self._stop_all_sounds()
                     self._create_buttons()  # Ensure buttons are created for interaction
 
-                    # Check for new wave best and prompt for name if needed (same logic as show_all_complete)
-                    print(f"[EndOfWave] Skip: Checking for name prompt: wave={self._wave_number}, score={self.total_score}, duration={self._session_duration_ms}")
+                    # Submit wave score silently when skipping animation (same as show_all_complete)
+                    print(f"[EndOfWave] Skip: Auto-submitting wave score: wave={self._wave_number}, score={self.total_score}, duration={self._session_duration_ms}")
                     if self._wave_number is not None:
-                        is_new_best = leaderboard.is_new_wave_best(self._wave_number, self.total_score, self._session_duration_ms)
-                        print(f"[EndOfWave] Skip: is_new_wave_best result: {is_new_best}")
-                        print(f"[EndOfWave] Skip: name_prompt is None: {self.name_prompt is None}")
-                        print(f"[EndOfWave] Skip: name_prompted_this_session: {self.name_prompted_this_session}")
-                    if (self._wave_number is not None and 
-                        leaderboard.is_new_wave_best(self._wave_number, self.total_score, self._session_duration_ms) and 
-                        self.name_prompt is None and not self.name_prompted_this_session):
-                        print(f"[EndOfWave] Skip: Creating name prompt!")
-                        current_name = leaderboard.get_player_name()
-                        self.name_prompt = NamePrompt(current_name)
-                        self.leaderboard_thread_started = False
-                        self.name_prompted_this_session = True
-                    else:
-                        print(f"[EndOfWave] Skip: Not creating name prompt")
+                        # Submit wave score using current player name without prompting
+                        leaderboard.handle_end_of_wave(self.total_score, self._wave_number, self._session_duration_ms)
+                        print(f"[EndOfWave] Skip: Wave {self._wave_number} score submitted automatically")
 
                     return True
         

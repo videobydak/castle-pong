@@ -40,7 +40,7 @@ _CLINK_CACHE: Dict[float, pygame.mixer.Sound] = {}
 
 # Preload font for combo popup
 pygame.font.init()
-_COMBO_FONT = pygame.font.SysFont(None, int(32 * SCALE), bold=True)
+_COMBO_FONT = pygame.font.Font(None, int(32 * SCALE))
 
 
 class _Coin:
@@ -125,7 +125,7 @@ class _Coin:
         # Draw value indicator for multi-coin pickups
         if self.value > 1:
             from pygame import font
-            small_font = font.SysFont(None, int(16 * SCALE))
+            small_font = pygame.font.Font(None, int(16 * SCALE))
             value_text = small_font.render(f"{self.value}", True, (255, 255, 255))
             value_rect = value_text.get_rect(center=(int(self.pos.x), int(self.pos.y - self.size_px//2 - 8)))
             # Draw black outline

@@ -69,7 +69,7 @@ class EpilepsyWarning:
         try:
             return load_font('PressStart2P-Regular.ttf', size)
         except:
-            return pygame.font.SysFont('monospace', size)
+            return pygame.font.Font(None, size)
     
     def _render_outline(self, text, font, color, outline_color, outline_width):
         """Render text with outline."""

@@ -18,9 +18,9 @@ def run_game_over(screen, final_score, WIDTH, HEIGHT):
         LOOP_MS = None
         last_restart = 0
 
-    over_font = pygame.font.SysFont(None, 72, bold=True)
-    info_font = pygame.font.SysFont(None, 32)
-    restart_font = pygame.font.SysFont(None, 28)
+    over_font = pygame.font.Font(None, 72)
+    info_font = pygame.font.Font(None, 32)
+    restart_font = pygame.font.Font(None, 28)
     txt_main  = over_font.render("Your Castle Has Fallen!", True, (200,0,0))
     txt_score = info_font.render(f"Final Score: {final_score}", True, (0,0,0))
     txt_restart = restart_font.render("Press Spacebar to Restart!", True, (0,0,0))

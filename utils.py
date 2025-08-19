@@ -233,9 +233,9 @@ def load_font(font_name: str, size: int, fallback_name: str = 'Courier New', fal
     except Exception as e:
         print(f"[Font] Failed to load {font_name}: {e}")
     
-    # Fallback to system font
-    print(f"[Font] Using fallback font: {fallback_name}")
-    return pygame.font.SysFont(fallback_name, size, bold=fallback_bold)
+    # Fallback to system font - use Font instead of SysFont for Mac compatibility
+    print(f"[Font] Using fallback font: None (default)")
+    return pygame.font.Font(None, size)
 
 
 # Monkey-patch pygame so existing ``pygame.mixer.Sound("foo.wav")`` and

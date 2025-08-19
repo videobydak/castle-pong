@@ -22,10 +22,10 @@ try:
 except pygame.error as e:
     print(f"[Audio] Failed to load '{MUSIC_PATH}':", e)
 
-screen = pygame.display.set_mode((WIDTH, HEIGHT))
+screen = pygame.display.set_mode((WIDTH, HEIGHT), pygame.HWSURFACE | pygame.DOUBLEBUF)
 clock  = pygame.time.Clock()
-font       = pygame.font.SysFont(None, 36)
-small_font = pygame.font.SysFont(None, 18)
+font       = pygame.font.Font(None, 36)
+small_font = pygame.font.Font(None, 18)
 
 # Generate a background grass texture once
 BACKGROUND = generate_grass(WIDTH, HEIGHT)
