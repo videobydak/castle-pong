@@ -26,7 +26,20 @@ class TutorialOverlay:
         if auto_start_music:
             try:
                 pygame.mixer.music.load(self.MENU_MUSIC)
-                pygame.mixer.music.set_volume(0.6)
+                # Get current music settings from options menu
+                try:
+                    import sys
+                    main_module = sys.modules['__main__']
+                    if hasattr(main_module, 'options_menu'):
+                        music_volume = main_module.options_menu.get_setting('music_volume', 0.75)
+                        if main_module.options_menu.get_setting('music_muted', False):
+                            pygame.mixer.music.set_volume(0)
+                        else:
+                            pygame.mixer.music.set_volume(music_volume)
+                    else:
+                        pygame.mixer.music.set_volume(0.6)  # Fallback
+                except:
+                    pygame.mixer.music.set_volume(0.6)  # Fallback
                 pygame.mixer.music.play(-1)
             except pygame.error as e:
                 print(f"[Audio] Failed to load menu music '{self.MENU_MUSIC}':", e)

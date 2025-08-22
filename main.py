@@ -966,7 +966,12 @@ while running:
             # Load and play menu music now that warning is dismissed
             try:
                 pygame.mixer.music.load(tutorial_overlay.MENU_MUSIC)
-                pygame.mixer.music.set_volume(0.6)
+                # Use current music volume from options
+                music_volume = options_menu.get_setting('music_volume', 0.75)
+                if options_menu.get_setting('music_muted', False):
+                    pygame.mixer.music.set_volume(0)
+                else:
+                    pygame.mixer.music.set_volume(music_volume)
                 pygame.mixer.music.play(-1)
             except pygame.error as e:
                 print(f"[Audio] Failed to load menu music: {e}")

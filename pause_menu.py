@@ -1,5 +1,6 @@
 import pygame, sys, os
 from config import WIDTH, HEIGHT, WHITE, YELLOW, get_control_key
+from quit_confirmation import QuitConfirmationDialog
 
 class PauseMenu:
     """Simple in-game pause interface activated with ESC."""
@@ -23,7 +24,7 @@ class PauseMenu:
             ("Resume", self._resume),
             ("Options", self._options),
             ("Store", self._store),
-            ("Quit", self._exit),
+            ("Quit", self._show_quit_confirmation),
         ]
         self._layout_buttons()
 
@@ -35,6 +36,9 @@ class PauseMenu:
         # Ensure first button shows as selected when menu opens
         if self._hover_states:
             self._hover_states[self.selected_index] = True
+        
+        # Quit confirmation dialog
+        self.quit_dialog = QuitConfirmationDialog()
 
     def _layout_buttons(self):
         """Precompute button rectangles and text surfaces."""
@@ -81,12 +85,21 @@ class PauseMenu:
                 _main.store.open_store(current_wave, automatic=False)
         except Exception as e:
             print("[PauseMenu] Failed to open store:", e)
+    def _show_quit_confirmation(self):
+        """Show the quit confirmation dialog."""
+        self.quit_dialog.show()
+    
     def _exit(self):
-        """Return to the main menu and completely reset the game state."""
+        """Return to the main menu and completely reset the game state.
+        
+        Note: Wave scores are automatically saved when waves are completed,
+        so quitting only loses current wave progress, not previous achievements.
+        """
         import sys
         import pygame
         try:
             _main = sys.modules['__main__']
+            
             # Close pause menu when returning to main menu
             self.active = False
             
@@ -175,7 +188,12 @@ class PauseMenu:
             # Recreate tutorial overlay (main menu)
             if hasattr(_main, 'tutorial_overlay'):
                 from tutorial import TutorialOverlay
-                _main.tutorial_overlay = TutorialOverlay(auto_start_music=True)
+                # Check if music is enabled in options before auto-starting
+                should_start_music = True
+                if hasattr(_main, 'options_menu'):
+                    music_volume = _main.options_menu.get_setting('music_volume', 0.75)
+                    should_start_music = (music_volume > 0)
+                _main.tutorial_overlay = TutorialOverlay(auto_start_music=should_start_music)
             
             # Music will be started by the tutorial overlay
             
@@ -212,6 +230,16 @@ class PauseMenu:
     def update(self, events):
         if not self.active:
             return False
+        
+        # Handle quit confirmation dialog first
+        if self.quit_dialog.active:
+            result = self.quit_dialog.update(events)
+            if result == "cancel":
+                return True  # Consumed event, stay in pause menu
+            elif result == "quit":
+                self._exit()
+                return True  # Consumed event
+            return True  # Dialog is active, consume all events
         
         consumed_event = False
         # --- Handle keyboard navigation ---
@@ -290,6 +318,9 @@ class PauseMenu:
             # Extra yellow border for selected button (keyboard navigation)
             if idx == self.selected_index:
                 pygame.draw.rect(surface, YELLOW, box_rect, 4)
+        
+        # Draw quit confirmation dialog on top if active
+        self.quit_dialog.draw(surface)
 
     # ----------------------------------------------------------------
     # Helper methods (copied from TutorialOverlay for consistency) ----
