@@ -50,6 +50,15 @@ class EndOfWaveScreen:
         self.heading_alpha = [0] * len(self.headings)
         self.current_heading = 0
         
+        # Button setup
+        self.button_width = 120
+        self.button_height = 40
+        self.button_spacing = 20
+        self.continue_button = None
+        self.shop_button = None
+        self.build_button = None
+        self.selected_button = 0  # 0=Continue, 1=Shop, 2=Build
+        
         # Sound control
         self.sounds = {}
         self.sound_channels = {}
@@ -220,14 +229,15 @@ class EndOfWaveScreen:
         self.current_sound_animation = None
     
     def _create_buttons(self):
-        """Create button rectangles for Continue and Shop."""
-        # Calculate button positions
-        total_width = self.button_width * 2 + self.button_spacing
+        """Create button rectangles for Continue, Shop, and Build."""
+        # Calculate button positions for 3 buttons
+        total_width = self.button_width * 3 + self.button_spacing * 2
         start_x = (WIDTH - total_width) // 2
         button_y = HEIGHT - 120  # 120 pixels from bottom
         
         self.continue_button = pygame.Rect(start_x, button_y, self.button_width, self.button_height)
         self.shop_button = pygame.Rect(start_x + self.button_width + self.button_spacing, button_y, self.button_width, self.button_height)
+        self.build_button = pygame.Rect(start_x + (self.button_width + self.button_spacing) * 2, button_y, self.button_width, self.button_height)
     
     def _draw_buttons(self, screen: pygame.Surface):
         """Draw the Continue and Shop buttons with highlighting."""
@@ -266,6 +276,21 @@ class EndOfWaveScreen:
         shop_text = self._button_surfaces[shop_key]
         shop_rect = shop_text.get_rect(center=self.shop_button.center)
         screen.blit(shop_text, shop_rect)
+        
+        # Draw Build button
+        build_selected = (self.selected_button == 2)
+        build_bg_color = (150, 150, 150) if build_selected else (100, 100, 100)
+        build_border_color = (255, 255, 0) if build_selected else WHITE
+        build_text_color = (255, 255, 0) if build_selected else WHITE
+        
+        pygame.draw.rect(screen, build_bg_color, self.build_button)
+        pygame.draw.rect(screen, build_border_color, self.build_button, 2)
+        
+        # Use pre-rendered button text
+        build_key = 'BUILD_SELECTED' if build_selected else 'BUILD'
+        build_text = self._button_surfaces[build_key]
+        build_rect = build_text.get_rect(center=self.build_button.center)
+        screen.blit(build_text, build_rect)
     
     def show(self, score: int, session_duration_ms: int, coins_at_wave_start: int, wave_number: Optional[int] = None):
         """Show the End of Wave Screen with given data."""
@@ -277,6 +302,7 @@ class EndOfWaveScreen:
         self.sequence_step_started = False
         self.initial_delay_timer = 0
         self.selected_button = 0  # Reset to Continue button
+        self.selected_action = None
         
         # Ensure we have a fresh background
         self._create_background()
@@ -380,7 +406,7 @@ class EndOfWaveScreen:
         return self.state == 'complete'
     
     def get_selected_action(self) -> str:
-        """Get the selected action ('continue' or 'shop'). Defaults to 'continue'."""
+        """Get the action selected by the user."""
         return self.selected_action or 'continue'
     
     def update(self, dt_ms: int):
@@ -587,6 +613,8 @@ class EndOfWaveScreen:
         self._button_surfaces['CONTINUE_SELECTED'] = self.pixel_font_small.render("CONTINUE", True, (255, 255, 0))
         self._button_surfaces['SHOP'] = self.pixel_font_small.render("SHOP", True, WHITE)
         self._button_surfaces['SHOP_SELECTED'] = self.pixel_font_small.render("SHOP", True, (255, 255, 0))
+        self._button_surfaces['BUILD'] = self.pixel_font_small.render("BUILD", True, WHITE)
+        self._button_surfaces['BUILD_SELECTED'] = self.pixel_font_small.render("BUILD", True, (255, 255, 0))
     
     def _get_closest_alpha_surface(self, heading: str, target_alpha: int):
         """Get the pre-rendered surface closest to the target alpha."""
@@ -679,17 +707,30 @@ class EndOfWaveScreen:
                         self.state = 'complete'
                         self._stop_all_sounds()  # Stop sounds immediately on selection
                         return True
+                    elif self.build_button.collidepoint(event.pos):
+                        self.selected_action = 'build'
+                        self.state = 'complete'
+                        self._stop_all_sounds()  # Stop sounds immediately on selection
+                        return True
             
         if event.type == pygame.KEYDOWN:
             if event.key == get_control_key('bottom_paddle_left') or event.key == get_control_key('bottom_paddle_right'):
                 if self.state == 'waiting_for_input':
-                    # Navigate between buttons
-                    self.selected_button = 1 - self.selected_button  # Toggle between 0 and 1
+                    # Navigate between buttons (0=Continue, 1=Shop, 2=Build)
+                    if event.key == get_control_key('bottom_paddle_left'):
+                        self.selected_button = (self.selected_button - 1) % 3
+                    else:
+                        self.selected_button = (self.selected_button + 1) % 3
                     return True
             elif event.key in (pygame.K_SPACE, pygame.K_RETURN):
                 if self.state == 'waiting_for_input':
                     # Select current button
-                    self.selected_action = 'continue' if self.selected_button == 0 else 'shop'
+                    if self.selected_button == 0:
+                        self.selected_action = 'continue'
+                    elif self.selected_button == 1:
+                        self.selected_action = 'shop'
+                    else:  # selected_button == 2
+                        self.selected_action = 'build'
                     self.state = 'complete'
                     self._stop_all_sounds()  # Stop sounds immediately on selection
                     return True

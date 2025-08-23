@@ -100,7 +100,11 @@ class Ball:
         self.pos += self.vel * dt
 
         # --- apply friction (linear) and spin damping ---
-        self.vel *= BALL_FRICTION
+        # Heavy turret projectiles slow down faster
+        if getattr(self, 'is_turret_projectile', False) and getattr(self, 'turret_type', '') == 'heavy':
+            self.vel *= BALL_FRICTION * 0.95  # Extra friction for heavy bombs
+        else:
+            self.vel *= BALL_FRICTION
         self.spin *= SPIN_DAMPING
 
     def draw(self, screen, small_font):
@@ -198,7 +202,42 @@ class Ball:
             screen.blit(surf, rect)
             return
 
-        # Fallback simple draw (no spin marker)
+        # Fallback / turret bullets --------------------------------
+        # Rapid turret brass bullet sprite with trail
+        if getattr(self, 'is_turret_projectile', False) and getattr(self, 'turret_type', '') == 'rapid':
+            # small bullet body
+            bw, bh = BALL_RADIUS*2, BALL_RADIUS
+            bs = pygame.Surface((bw+6, bh+6), pygame.SRCALPHA)
+            # trail lines
+            pygame.draw.line(bs, (255,200,200,140), (2, bh//2+3), (bw//2, bh//2+3), 2)
+            pygame.draw.line(bs, (255,200,200,80), (2, bh//2), (bw//2-2, bh//2), 1)
+            # casing
+            pygame.draw.rect(bs, (200,170,60), pygame.Rect(4,3,bw-8,bh), border_radius=2)
+            # rounded tip
+            pygame.draw.ellipse(bs, (220,80,80), pygame.Rect(bw-10,2,10,bh+2))
+            # rotate to match velocity direction
+            ang = -math.degrees(math.atan2(self.vel.y, self.vel.x))
+            final = pygame.transform.rotate(bs, ang)
+            rect = final.get_rect(center=(x,y))
+            screen.blit(final, rect)
+            return
+
+        # Heavy turret bomb appearance and slowdown
+        if getattr(self, 'is_turret_projectile', False) and getattr(self, 'turret_type', '') == 'heavy':
+            size = BALL_RADIUS * 2 + 6
+            bs = pygame.Surface((size, size), pygame.SRCALPHA)
+            c = size // 2
+            # black bomb body
+            pygame.draw.circle(bs, (20,20,20), (c,c), BALL_RADIUS+2)
+            pygame.draw.circle(bs, (60,60,60), (c-2,c-2), BALL_RADIUS)
+            # short fuse spark
+            pygame.draw.circle(bs, (255,200,80), (c+BALL_RADIUS//2, c-BALL_RADIUS//2), 3)
+            final = pygame.transform.rotate(bs, 0)
+            rect = final.get_rect(center=(x, y))
+            screen.blit(final, rect)
+            return
+
+        # default simple circle
         pygame.draw.circle(surf, self.color, (center,center), BALL_RADIUS)
         rect = surf.get_rect(center=(x, y))
         screen.blit(surf, rect)

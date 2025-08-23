@@ -65,7 +65,7 @@ class Store:
         self.active = False
         self.current_tab = 0
         self.scroll_offset = 0
-        self.tab_names = ["Restoration", "Upgrades", "Fortune", "Potions"]
+        self.tab_names = ["Restoration", "Upgrades", "Fortune", "Potions", "Turrets"]
         
         # Track whether store was opened automatically (wave transition) or manually (pause menu)
         self.opened_automatically = False
@@ -196,10 +196,33 @@ class Store:
                            "Unlocks the chance to spawn a Pierce potion (balls pass through blocks)", 60, 1, "single"),
                 StoreUpgrade("potion_through", "Alchemy", 
                            "Unlocks the chance to spawn an Alchemy potion (converts regular cannonballs into potions or fireballs when hit by the paddle)", 55, 1, "single"),
-            ]
+            ],
+                            "Turrets": [
+                    StoreUpgrade("turret_accuracy", "Targeting System",
+                               "Improve turret accuracy and target acquisition speed", 45, 3, "tiered"),
+                    StoreUpgrade("turret_reload", "Auto-Loader",
+                               "Reduce turret reload time for faster firing", 50, 4, "tiered"),
+                    StoreUpgrade("turret_damage", "Armor Piercing",
+                               "Increase turret projectile damage", 60, 3, "tiered"),
+                    StoreUpgrade("turret_range", "Long Range Optics",
+                               "Extend turret targeting range", 55, 3, "tiered"),
+                    StoreUpgrade("turret_health", "Reinforced Plating",
+                               "Increase turret durability against enemy fire", 40, 3, "tiered"),
+                    StoreUpgrade("ammo_basic", "Basic Ammo Pack",
+                               "Purchase 25 rounds of basic ammunition", 15, 1, "consumable"),
+                    StoreUpgrade("ammo_rapid", "Rapid Ammo Pack",
+                               "Purchase 20 rounds of rapid-fire ammunition", 20, 1, "consumable"),
+                    StoreUpgrade("ammo_heavy", "Heavy Ammo Pack",
+                               "Purchase 10 rounds of heavy ammunition", 30, 1, "consumable"),
+                    StoreUpgrade("ammo_bulk", "Bulk Ammo Crate",
+                               "Purchase 50 rounds of general ammunition", 35, 1, "consumable"),
+                ]
         }
-        self.tab_names = ["Restoration", "Upgrades", "Fortune", "Potions"]
         return upgrades
+
+    def get_turret_upgrade_level(self, upgrade_id: str) -> int:
+        """Get the current level of a turret upgrade."""
+        return self.player_upgrades.get(upgrade_id, 0)
 
     def open_store(self, wave_number: int, automatic: bool = False):
         """Open the store interface."""
@@ -453,6 +476,26 @@ class Store:
         if upgrade.id not in self.player_upgrades:
             self.player_upgrades[upgrade.id] = 0
         self.player_upgrades[upgrade.id] += 1
+        
+        # Handle ammo purchases directly
+        if upgrade.id.startswith("ammo_"):
+            from ammo import add_ammo, unlock_type
+            if upgrade.id == "ammo_basic":
+                unlock_type('basic')
+                add_ammo(25, "basic")
+                self._add_feedback("Added 25 Basic Ammo!", (100, 255, 100))
+            elif upgrade.id == "ammo_rapid":
+                unlock_type('rapid')
+                add_ammo(20, "rapid")
+                self._add_feedback("Added 20 Rapid Ammo!", (100, 255, 100))
+            elif upgrade.id == "ammo_heavy":
+                unlock_type('heavy')
+                add_ammo(10, "heavy")
+                self._add_feedback("Added 10 Heavy Ammo!", (100, 255, 100))
+            elif upgrade.id == "ammo_bulk":
+                add_ammo(50)  # General ammo
+                self._add_feedback("Added 50 General Ammo!", (100, 255, 100))
+            return
         
         # Apply specific upgrade effects immediately if we have game state
         if self.game_state:

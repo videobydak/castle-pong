@@ -11,6 +11,8 @@ from cg import generate_mask_for_difficulty  # Add this import
 from paddle_intro import PaddleIntro
 from game_over import run_game_over
 from castle_build_anim import update_castle_build_anim, draw_castle_build_anim
+from build_system import BuildSystem
+from build_menu import BuildMenu
 # Heart collectible
 from heart import update_hearts, draw_hearts, clear_hearts
 # Coin collectible and store system
@@ -21,6 +23,8 @@ from pause_menu import PauseMenu  # <--- new import for in-game pause menu
 from options_menu import OptionsMenu  # <--- new import for options menu
 from end_of_wave_screen import EndOfWaveScreen  # <--- new import for end of wave screen
 from epilepsy_warning import EpilepsyWarning  # <--- new import for epilepsy warning
+from build_system import BuildSystem  # <--- new import for build system
+from build_menu import BuildMenu  # <--- new import for build menu
 import time
 
 # --- helper ---
@@ -361,10 +365,7 @@ def create_castle_for_wave(wave):
         block_size=BLOCK_SIZE,
         level=wave,
         staged_build=True,
-        build_callback=lambda typ, idx: (
-            sounds['castle_build_whoosh'].play() if typ=='brick' and idx%2==0 and 'castle_build_whoosh' in sounds else None
-            or sounds['paddle_hit'].play() if typ=='turret' and 'paddle_hit' in sounds else None
-        )
+        build_callback=None  # Disable castle build sounds temporarily to test for pop source
     )
     # Reset the global shot counter baseline for the new wave. Wave 1 starts
     # at 0 shots; every subsequent wave raises the baseline by 5 shots (≈5 %).
@@ -409,8 +410,11 @@ options_menu._apply_settings()
 end_of_wave_screen = EndOfWaveScreen()
 # Store interface
 store = get_store()
+# Build system - initialize after store is created
+build_system = BuildSystem(player_wall, store)
+build_menu = BuildMenu(build_system)
 # Set game state references for upgrade effects
-store.set_game_state(paddles, player_wall, castle)
+store.set_game_state(paddles, None, castle)
 # Disable cannon fire until tutorial is dismissed (restart)
 castle.shooting_enabled = False
 
@@ -557,6 +561,11 @@ def return_to_main_menu(show_menu=True):
     particles   = []
     score       = 0
     
+    # Initialize build system for this wave
+    global build_system, build_menu
+    build_system = BuildSystem(player_wall, store)
+    build_menu = BuildMenu(build_system)
+    
     # Reset wave timing ---------------------------------------------------
     wave_start_time = 0
     wave_start_coins = 0
@@ -564,6 +573,8 @@ def return_to_main_menu(show_menu=True):
     # Collectibles / upgrades -------------------------------------------
     clear_coins()
     clear_hearts()
+    from ammo import reset_ammo
+    reset_ammo()  # Reset ammo to starting values
     store.close_store()
     reset_upgrade_states()
     store.set_game_state(paddles, player_wall, castle)
@@ -765,6 +776,7 @@ while running:
         current_time = pygame.time.get_ticks()
         for delay_time, sound in pygame.time._delayed_sounds[:]:
             if current_time >= delay_time:
+                print(f"DEBUG: Playing delayed sound at {current_time}ms (scheduled for {delay_time}ms)")
                 sound.play()
                 pygame.time._delayed_sounds.remove((delay_time, sound))
 
@@ -894,6 +906,49 @@ while running:
             
             # Update player wall tiered rebuilding
             player_wall.update(ms_castle)
+            
+            # Update build system (turrets)
+            if build_system:
+                castle_blocks = castle.blocks if castle else []
+                # Debug turret count
+                if pygame.time.get_ticks() % 2000 < 50:  # Every 2 seconds
+                    print(f"DEBUG: Build system has {len(build_system.turrets)} turrets")
+                turret_projectiles = build_system.update(ms_castle, balls, player_wall, castle_blocks)
+                # Handle turret projectiles using existing cannonball system
+                if turret_projectiles:
+                    for projectile_data in turret_projectiles:
+                        if projectile_data:
+                            # Create a proper cannonball for the turret projectile
+                            from ball import Ball
+                            pos = projectile_data['pos']
+                            vel = projectile_data['vel']
+                            
+                            # Create a cannonball with turret-specific color
+                            projectile_color = projectile_data.get('color', WHITE)
+                            turret_ball = Ball(
+                                x=pos.x,
+                                y=pos.y,
+                                vx=vel.x,
+                                vy=vel.y,
+                                color=projectile_color,
+                                spin=0.1  # Add slight spin
+                            )
+                            # Mark as turret projectile for identification
+                            turret_ball.is_turret_projectile = True
+                            turret_ball.turret_type = projectile_data.get('turret_type', 'basic')
+                            turret_ball.turret_damage = projectile_data.get('damage', 10)
+                            # Heavy bomb slows down quickly
+                            if turret_ball.turret_type == 'heavy':
+                                # apply more friction by tagging and handling in update loop via BALL_FRICTION already applied
+                                # optionally, reduce spin to zero for heavy look
+                                turret_ball.spin = 0
+                            turret_ball.friendly = False  # Can damage castle immediately
+                            # Slight initial spread already applied for rapid
+                            # TEMPORARILY DISABLED - Turret firing sounds (causing random pops)
+                            # TODO: Fix turret sound logic to prevent random firing
+                            pass
+                            turret_ball.can_hit_player_paddle = False  # Can't hit player paddle until bounced
+                            balls.append(turret_ball)
 
     barrier_active = (now < barrier_timer)
 
@@ -1001,8 +1056,16 @@ while running:
                 eos_consumed_events = True
                 break
     
-    # Only feed events to other menus if options menu and End of Wave Screen didn't consume them
-    if not options_consumed_events and not store_consumed_events and not eos_consumed_events:
+    # feed events to Build Menu
+    build_menu_consumed_events = False
+    if build_menu and build_menu.active:
+        for event in events:
+            if build_menu.handle_event(event):
+                build_menu_consumed_events = True
+                break
+    
+    # Only feed events to other menus if no menu consumed them
+    if not options_consumed_events and not store_consumed_events and not eos_consumed_events and not build_menu_consumed_events:
         # feed events to pause menu
         pause_consumed_events = pause_menu.update(events)
         
@@ -1061,7 +1124,7 @@ while running:
     # -----------------------------------------------------
     #  Recalculate paused state now that overlays processed
     # -----------------------------------------------------
-    paused = intro_active or tutorial_overlay.active or pause_menu.active or options_menu.active or store.active or end_of_wave_screen.active or (epilepsy_warning.active and not epilepsy_warning_shown)
+    paused = intro_active or tutorial_overlay.active or pause_menu.active or options_menu.active or store.active or end_of_wave_screen.active or (build_menu and build_menu.active) or (epilepsy_warning.active and not epilepsy_warning_shown)
     
     # Handle pause state changes for power timers - extend expiry times when unpausing
     if 'prev_paused' not in globals():
@@ -1094,6 +1157,12 @@ while running:
                 if e.type==pygame.KEYDOWN and e.key==get_control_key('pause_menu'):
                     pause_menu.toggle()
                     continue  # don't process further for ESC
+                # handle Build menu toggle (TAB key)
+                if e.type==pygame.KEYDOWN and e.key==pygame.K_TAB:
+                    if build_menu:
+                        build_menu.active = not build_menu.active
+                        print(f"Build menu toggled: {build_menu.active}")
+                    continue
                 # spacebar to release sticky balls or bump paddles
                 if e.key==get_control_key('bump_launch') and down:
                     now = pygame.time.get_ticks()
@@ -1120,6 +1189,10 @@ while running:
     # ---------------- End of Wave Screen update ----------------
     if end_of_wave_screen.active:
         end_of_wave_screen.update(ms)
+    
+    # ---------------- Build Menu update ----------------
+    if build_menu and build_menu.active:
+        build_menu.update(ms)
     
     # ---------------- Store update ----------------
     store.update(ms)
@@ -1338,6 +1411,11 @@ while running:
         # check collision with paddles
         for side,p in paddles.items():
             if r.colliderect(p.rect):
+                # Ignore backside of bottom paddle for turret projectiles
+                if getattr(ball, 'is_turret_projectile', False) and p.side == 'bottom':
+                    # Bottom paddle faces up; backside is below it
+                    if ball.pos.y > p.rect.centery and ball.vel.y < 0:
+                        continue
                 # Precompute direction of incoming ball for paddle shake effect
                 impact_dir = pygame.Vector2(0,0)
                 if ball.vel.length_squared() > 0:
@@ -1697,6 +1775,57 @@ while running:
                         ball.vel *= 1.05
                     break
 
+                # Turret projectiles: apply damage values and heavy AoE
+                if getattr(ball, 'is_turret_projectile', False):
+                    # Determine damage by turret type, default from projectile data
+                    dmg = float(getattr(ball, 'turret_damage', 10))
+                    turret_type = getattr(ball, 'turret_type', 'basic')
+                    # Impact point
+                    impact_x = max(b.left, min(ball.pos.x, b.right))
+                    impact_y = max(b.top, min(ball.pos.y, b.bottom))
+                    impact_point = (int(impact_x), int(impact_y))
+                    impact_angle = math.atan2(incoming_dir.y, incoming_dir.x)
+                    # For rapid: accumulate fractional damage toward whole hits
+                    if turret_type == 'rapid':
+                        # store fractional accumulator on block key
+                        if not hasattr(castle, '_turret_damage_accum'):
+                            castle._turret_damage_accum = {}
+                        key = (b.x, b.y)
+                        castle._turret_damage_accum[key] = castle._turret_damage_accum.get(key, 0.0) + (dmg * 0.25) / 10.0
+                        whole_hits = int(castle._turret_damage_accum[key])
+                        castle._turret_damage_accum[key] -= whole_hits
+                        for _ in range(max(1, whole_hits)):
+                            castle.hit_block(b, impact_point=impact_point, impact_angle=impact_angle)
+                    else:
+                        # Apply damage by calling hit_block appropriate number of times
+                        hits = max(1, int(dmg // 10))
+                        for _ in range(hits):
+                            castle.hit_block(b, impact_point=impact_point, impact_angle=impact_angle)
+                    # Heavy: AoE around impact
+                    if turret_type == 'heavy':
+                        aoe_radius = int(60 * SCALE)
+                        for bb in castle.blocks[:]:
+                            if bb == b:
+                                continue
+                            if pygame.Vector2(bb.centerx, bb.centery).distance_to(ball.pos) <= aoe_radius:
+                                # heavy does bigger hits: 2 damage (20 hp) equivalent
+                                castle.hit_block(bb)
+                                castle.hit_block(bb)
+                        # AoE particles
+                        for _ in range(28):
+                            ang = random.uniform(0, 360)
+                            spd = random.uniform(2, 5)
+                            vel = pygame.Vector2(spd, 0).rotate(ang)
+                            color = (40, 40, 40)
+                            particles.append(Particle(ball.pos.x, ball.pos.y, vel, color, life=22))
+                    # Remove turret projectile after impact
+                    balls.remove(ball)
+                    # Sound
+                    if 'wall_break' in sounds:
+                        sounds['wall_break'].play()
+                    trigger_shake(3)
+                    break
+
                 # Red ball logic – break up to 2 blocks then explode
                 if ball.color == RED:
                     castle.shatter_block(b, incoming_dir)
@@ -1795,6 +1924,10 @@ while running:
         draw_castle_build_anim(castle, scene_surf)
     # Draw persistent player wall underneath castle visuals
     player_wall.draw(scene_surf)
+    
+    # Draw build system (turrets and buildable area)
+    if build_system:
+        build_system.draw(scene_surf, show_buildable_area=build_menu and build_menu.active)
     for side,p in paddles.items():
         col = None
         if side in power_timers:
@@ -1830,16 +1963,49 @@ while running:
     draw_coins(scene_surf)
 
     # Display score and current number of persistent debris pieces
-    # --- HUD: Score and Coins at Top Center ---
+    # --- HUD: Score, Coins, and Ammo at Top Center ---
+    from ammo import get_ammo_summary
     coins_text = str(get_coin_count())
+    ammo_summary = get_ammo_summary()
     hud_text = f"{score}"
     score_surf = small_font.render(hud_text, True, (0,0,0))
     coin_surf = small_font.render(coins_text, True, (255,215,0))
     # simple 8-bit coin icon (yellow circle)
     coin_icon = pygame.Surface((12,12), pygame.SRCALPHA)
     pygame.draw.circle(coin_icon, (255,215,0), (6,6), 6)
+    # Icons for ammo types
+    rapid_icon = pygame.Surface((16,12), pygame.SRCALPHA)
+    pygame.draw.rect(rapid_icon, (200, 170, 60), pygame.Rect(2,4,9,4), border_radius=1)
+    pygame.draw.ellipse(rapid_icon, (220,80,80), pygame.Rect(9,3,6,6))
+    pygame.draw.line(rapid_icon, (120,90,30), (6,4), (6,7), 1)
+    basic_icon = pygame.Surface((12,12), pygame.SRCALPHA)
+    pygame.draw.circle(basic_icon, (180,180,180), (6,6), 5)
+    pygame.draw.circle(basic_icon, (230,230,230), (5,5), 3)
+    heavy_icon = pygame.Surface((14,14), pygame.SRCALPHA)
+    pygame.draw.circle(heavy_icon, (20,20,20), (7,7), 6)
+    pygame.draw.circle(heavy_icon, (60,60,60), (6,6), 4)
+    
     # compute layout – centered at top
-    total_w = score_surf.get_width() + 8 + coin_icon.get_width() + coin_surf.get_width() + 10
+    # Score + coin + three ammo icons with counts
+    ammo_text_rapid = small_font.render(str(ammo_summary['rapid']), True, (255,100,100))
+    ammo_text_basic = small_font.render(str(ammo_summary['basic']), True, (220,220,220))
+    ammo_text_heavy = small_font.render(str(ammo_summary['heavy']), True, (200,200,200))
+    blocks = [
+        ('score', score_surf),
+        ('sp', None),
+        ('coin_icon', coin_icon), ('coin_text', coin_surf),
+        ('sp', None),
+        ('rapid_icon', rapid_icon), ('rapid_text', ammo_text_rapid),
+        ('sp', None),
+        ('basic_icon', basic_icon), ('basic_text', ammo_text_basic),
+        ('sp', None),
+        ('heavy_icon', heavy_icon), ('heavy_text', ammo_text_heavy),
+    ]
+    total_w = score_surf.get_width()
+    total_w += 8 + coin_icon.get_width() + 2 + coin_surf.get_width()
+    total_w += 12 + rapid_icon.get_width() + 2 + ammo_text_rapid.get_width()
+    total_w += 12 + basic_icon.get_width() + 2 + ammo_text_basic.get_width()
+    total_w += 12 + heavy_icon.get_width() + 2 + ammo_text_heavy.get_width()
     base_x = WIDTH//2 - total_w//2
     y = 12  # Top margin
     scene_surf.blit(score_surf, (base_x, y))
@@ -1847,6 +2013,18 @@ while running:
     scene_surf.blit(coin_icon, (x, y+score_surf.get_height()//2 - 6))
     x += coin_icon.get_width() + 2
     scene_surf.blit(coin_surf, (x, y))
+    x += coin_surf.get_width() + 12
+    scene_surf.blit(rapid_icon, (x, y+score_surf.get_height()//2 - 6))
+    x += rapid_icon.get_width() + 2
+    scene_surf.blit(ammo_text_rapid, (x, y))
+    x += ammo_text_rapid.get_width() + 12
+    scene_surf.blit(basic_icon, (x, y+score_surf.get_height()//2 - 6))
+    x += basic_icon.get_width() + 2
+    scene_surf.blit(ammo_text_basic, (x, y))
+    x += ammo_text_basic.get_width() + 12
+    scene_surf.blit(heavy_icon, (x, y+score_surf.get_height()//2 - 7))
+    x += heavy_icon.get_width() + 2
+    scene_surf.blit(ammo_text_heavy, (x, y))
 
     # Power status bars
     bar_y = 40
@@ -2132,9 +2310,14 @@ while running:
             if selected_action == 'continue':
                 # Skip store and go directly to next wave
                 wave_transition.update({'state': 'store_fade_out', 'timer': 0, 'fade_alpha': 0})
-            else:  # 'shop'
+            elif selected_action == 'shop':
                 # Go to store as normal
                 wave_transition.update({'state': 'fade_to_store', 'timer': 0})
+            elif selected_action == 'build':
+                # Show build menu
+                build_menu.show()
+                # Set state to wait for build menu completion
+                wave_transition.update({'state': 'build_menu', 'timer': 0})
 
     # 4) Fade to black before store
     if wave_transition['state'] == 'fade_to_store':
@@ -2158,6 +2341,12 @@ while running:
     # 6) When store closes, start fade out
     if wave_transition['state'] == 'focus' and not store.active:
         wave_transition.update({'state': 'store_fade_out', 'timer': 0, 'fade_alpha': 0})
+
+    # 6.5) Build menu state - wait for completion
+    if wave_transition['state'] == 'build_menu':
+        if not build_menu.active:
+            # Build menu closed, continue to next wave
+            wave_transition.update({'state': 'store_fade_out', 'timer': 0, 'fade_alpha': 0})
 
     # 7) Fade out to black after store
     if wave_transition['state'] == 'store_fade_out':
@@ -2330,6 +2519,9 @@ while running:
         # Disable cannon fire until the tutorial overlay is dismissed after restart
         castle.shooting_enabled = False
         player_wall   = PlayerWall()
+        # Reinitialize build system
+        build_system = BuildSystem(player_wall, store)
+        build_menu = BuildMenu(build_system)
         paddles = {
             'bottom': Paddle('bottom')
         }
@@ -2448,8 +2640,8 @@ while running:
         # Filling the background with pure white causes a burst of light
         # when the End-of-Wave screen first appears.  Use black instead – or
         # skip the fill entirely – while the EOS is showing.
-        overlay_states = ('fade_to_store', 'store_fade_in', 'resume_fade_in', 'end_of_wave_screen')
-        if st in overlay_states:
+        overlay_states = ('fade_to_store', 'store_fade_in', 'resume_fade_in', 'end_of_wave_screen', 'build_menu')
+        if wave_transition['state'] in overlay_states:
             # Black base avoids flashing when a semi-transparent black overlay
             # is applied on top.  A white base would show through briefly at
             # low alpha causing a perceived flicker.
@@ -2459,16 +2651,20 @@ while running:
         screen.blit(zoomed_surf, (offset_x, offset_y))
 
         # Draw overlays (store, pause menu, tutorial) during focus, approach, and resume so the armory appears
-        if st in ('focus', 'approach', 'resume'):
+        if wave_transition['state'] in ('focus', 'approach', 'resume'):
             tutorial_overlay.draw(screen)
             pause_menu.draw(screen)
             options_menu.draw(screen)
             store.draw(screen)
+        
+        # Draw build menu during build_menu state
+        if wave_transition['state'] == 'build_menu' and build_menu:
+            build_menu.draw(screen)
 
         # Draw End of Wave Screen on top of everything during transitions
         if end_of_wave_screen.active:
             end_of_wave_screen.draw(screen)
-
+        
         # Draw epilepsy warning on top of everything if active and not yet shown
         if epilepsy_warning.active and not epilepsy_warning_shown:
             epilepsy_warning.draw(screen)
@@ -2507,6 +2703,10 @@ while running:
     # Draw End of Wave Screen on top of everything, including fade overlays (when not in transition)
     if end_of_wave_screen.active and wave_transition['state'] in ('idle', 'end_of_wave_screen'):
         end_of_wave_screen.draw(screen)
+    
+    # Draw build menu when active
+    if build_menu and build_menu.active:
+        build_menu.draw(screen)
 
     # Draw paddle tooltips only when End-of-Wave screen is not active.
     if not end_of_wave_screen.active:
