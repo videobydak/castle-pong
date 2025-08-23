@@ -118,7 +118,13 @@ class Turret:
         closest_target = None
         closest_distance = float('inf')
 
-        # Target valid castle blocks that exist on screen
+        # ------------------------------------------------------------
+        #  Target selection logic – prefer blocks **within range** but
+        #  fall back to the nearest block overall so the turret always
+        #  has something to track & fire at.  This prevents the "never
+        #  fires" bug when the player builds turrets a little too far
+        #  from the castle.
+        # ------------------------------------------------------------
         if castle_blocks:
             for block in castle_blocks:
                 if not hasattr(block, 'centerx'):
@@ -127,9 +133,22 @@ class Turret:
                     continue
                 block_center = pygame.Vector2(block.centerx, block.centery)
                 distance = turret_center.distance_to(block_center)
+
+                # First pass: look for **within–range** targets
                 if distance <= self.range and distance < closest_distance:
                     closest_target = block_center
                     closest_distance = distance
+
+            # Second pass fallback – pick *nearest* block even if out of range
+            if closest_target is None:
+                for block in castle_blocks:
+                    if not hasattr(block, 'centerx'):
+                        continue
+                    block_center = pygame.Vector2(block.centerx, block.centery)
+                    distance = turret_center.distance_to(block_center)
+                    if distance < closest_distance:
+                        closest_target = block_center
+                        closest_distance = distance
 
         return closest_target
     

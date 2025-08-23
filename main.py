@@ -365,7 +365,10 @@ def create_castle_for_wave(wave):
         block_size=BLOCK_SIZE,
         level=wave,
         staged_build=True,
-        build_callback=None  # Disable castle build sounds temporarily to test for pop source
+        build_callback=lambda typ, idx: (
+            sounds['castle_build_whoosh'].play() if typ=='brick' and idx%2==0 and 'castle_build_whoosh' in sounds else None
+            or sounds['paddle_hit'].play() if typ=='turret' and 'paddle_hit' in sounds else None
+        )
     )
     # Reset the global shot counter baseline for the new wave. Wave 1 starts
     # at 0 shots; every subsequent wave raises the baseline by 5 shots (≈5 %).
@@ -859,7 +862,12 @@ while running:
 
     # Inform castle update logic whether rebuild progress should be paused
     castle._pause_rebuild = intro_active
-    paused = intro_active or tutorial_overlay.active or pause_menu.active or options_menu.active or (epilepsy_warning.active and not epilepsy_warning_shown)
+    # Include build menu & store screens to ensure game logic truly pauses (prevents flicker)
+    paused = (
+        intro_active or tutorial_overlay.active or pause_menu.active or options_menu.active or
+        (build_menu and build_menu.active) or store.active or  # build/store UIs should pause gameplay
+        (epilepsy_warning.active and not epilepsy_warning_shown)
+    )
 
     # Apply time scaling only to gameplay portion
     if wave_transition['state'] in ('approach', 'focus', 'resume'):
