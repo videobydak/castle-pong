@@ -84,9 +84,9 @@ def unlock_type(ammo_type: str):
     if ammo_type in _unlocked_types:
         return
     starters = {
-        'basic': 20,
-        'rapid': 60,
-        'heavy': 6,
+        'basic': 10,
+        'rapid': 24,
+        'heavy': 3,
     }
     amt = starters.get(ammo_type, 0)
     if amt > 0:

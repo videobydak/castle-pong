@@ -230,8 +230,8 @@ class Cannon:
         if _SHOT_SOUNDS:
             import random
             # Update volumes before playing
-            import castle
-            castle._update_cannon_sound_volumes()
+            import castle as castle_module
+            castle_module._update_cannon_sound_volumes()
             # Ensure all required pitches exist in _SHOT_SOUNDS
             # (This is safe to call repeatedly; _prepare_shot_sounds will only build once)
             if shot_type == 'red':

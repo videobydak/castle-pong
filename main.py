@@ -70,6 +70,10 @@ def reflect(ball, rect):
     # damage the enemy castle on subsequent collisions.
     if hasattr(ball, 'friendly'):
         ball.friendly = False
+    
+    # End initial trajectory for turret projectiles after any bounce
+    if getattr(ball, 'is_turret_projectile', False):
+        ball.initial_trajectory = False
 
 # --- true concave paddle reflection ------------------------------------
 # Computes a custom normal based on the hit position along the paddle so
@@ -112,6 +116,10 @@ def curved_paddle_reflect(ball, paddle):
 
     # Ball has bounced – it can now damage the castle
     ball.friendly = False
+    
+    # End initial trajectory for turret projectiles after paddle bounce
+    if getattr(ball, 'is_turret_projectile', False):
+        ball.initial_trajectory = False
 
     # --------------------------------------------------
     #  Spin transfer – paddles impart angular velocity
@@ -435,6 +443,9 @@ flash_timer = 0
 FLASH_DURATION = 400  # ms
 POWER_DURATION = 10000  # ms (power-up active time)
 
+# explosion circle effects
+explosion_circles = []  # List of (x, y, start_time, duration)
+
 power_timers = {}  # side -> (type, expiry_time)
 
 # Global barrier power timer
@@ -518,6 +529,7 @@ try:
     sounds['eos_scoring_high'] = _load_sound('EOS - Scoring High')
     sounds['eos_no_bonus'] = _load_sound('EOS - No Bonus')
     sounds['eos_yes_bonus'] = _load_sound('EOS - Yes Bonus')
+    sounds['explosion_big'] = _load_sound('explosionBIG')
 
     # Volumes will be set after options menu is initialized
 
@@ -951,6 +963,14 @@ while running:
                                 # optionally, reduce spin to zero for heavy look
                                 turret_ball.spin = 0
                             turret_ball.friendly = False  # Can damage castle immediately
+                            turret_ball.initial_trajectory = True  # Shoots over paddles initially
+                            
+                            # Heavy bomb specific properties
+                            if turret_ball.turret_type == 'heavy':
+                                turret_ball.heavy_mode = False  # Start in light mode
+                                turret_ball.fuse_lit = False  # Fuse starts unlit
+                                turret_ball.fuse_timer = 0
+                                turret_ball.fuse_length = 2000  # 2 second fuse
                             # Slight initial spread already applied for rapid
                             # TEMPORARILY DISABLED - Turret firing sounds (causing random pops)
                             # TODO: Fix turret sound logic to prevent random firing
@@ -1295,6 +1315,65 @@ while running:
     
     for ball in (balls[:] if not paused else []):
         ball.update(dt)
+        
+        # Heavy bomb fuse effect and explosion
+        if (getattr(ball, 'is_turret_projectile', False) and 
+            getattr(ball, 'turret_type', '') == 'heavy' and 
+            getattr(ball, 'fuse_lit', False)):
+            
+            now = pygame.time.get_ticks()
+            elapsed = now - getattr(ball, 'fuse_timer', now)
+            remaining = getattr(ball, 'fuse_length', 2000) - elapsed
+            
+            # Fuse particle effects
+            if remaining > 0:
+                # Fuse line effect (white line getting shorter)
+                fuse_progress = elapsed / getattr(ball, 'fuse_length', 2000)
+                fuse_length = int(15 * (1 - fuse_progress))  # Line gets shorter
+                if fuse_length > 0:
+                    fuse_end = ball.pos + pygame.Vector2(fuse_length, -5)
+                    # Add fuse particles
+                    for _ in range(random.randint(1, 3)):
+                        spark_pos = ball.pos + pygame.Vector2(random.uniform(0, fuse_length), random.uniform(-8, -2))
+                        vel = pygame.Vector2(random.uniform(-0.5, 0.5), random.uniform(-2, -0.5))
+                        col = random.choice([(255, 255, 255), (255, 200, 0), (255, 100, 0)])
+                        particles.append(Particle(spark_pos.x, spark_pos.y, vel, col, life=20))
+            else:
+                # EXPLOSION TIME!
+                balls.remove(ball)
+                
+                # Screen flash effect
+                flash_color = (255, 255, 200)
+                flash_timer = 300  # 300ms flash
+                
+                # Heavy explosion sound
+                if 'explosion_big' in sounds:
+                    sounds['explosion_big'].play()
+                
+                # Massive screen shake
+                trigger_shake(15)
+                
+                # Damage all castle blocks in AoE
+                aoe_radius = int(80 * SCALE)  # Larger radius than before
+                for castle_block in castle.blocks[:]:
+                    if pygame.Vector2(castle_block.centerx, castle_block.centery).distance_to(ball.pos) <= aoe_radius:
+                        # Each block takes 3 hits worth of damage
+                        for _ in range(3):
+                            castle.hit_block(castle_block)
+                
+                # Massive explosion particles
+                for _ in range(50):
+                    ang = random.uniform(0, 360)
+                    spd = random.uniform(3, 8)
+                    vel = pygame.Vector2(spd, 0).rotate(ang)
+                    color = random.choice([(255, 200, 0), (255, 100, 0), (255, 150, 0), (200, 200, 200)])
+                    particles.append(Particle(ball.pos.x, ball.pos.y, vel, color, life=40))
+                
+                # Add explosion circle effect to show AoE radius
+                explosion_circles.append((ball.pos.x, ball.pos.y, pygame.time.get_ticks(), 800))  # 800ms duration
+                
+                continue  # Skip rest of ball logic since it's been removed
+        
         # spawn flame trail for red balls every frame
         if ball.color == RED and not ball.is_power:
             for _ in range(random.randint(1,2)):
@@ -1411,6 +1490,12 @@ while running:
                 # If the ball is friendly, bouncing off the edge should make it hostile
                 if hasattr(ball, 'friendly') and ball.friendly:
                     ball.friendly = False
+                # End initial trajectory for turret projectiles after barrier bounce
+                if getattr(ball, 'is_turret_projectile', False):
+                    ball.initial_trajectory = False
+                    # Heavy bombs become much heavier after bouncing off barriers
+                    if getattr(ball, 'turret_type', '') == 'heavy':
+                        ball.heavy_mode = True
                 # small screen shake
             else:
                 balls.remove(ball)
@@ -1419,11 +1504,17 @@ while running:
         # check collision with paddles
         for side,p in paddles.items():
             if r.colliderect(p.rect):
-                # Ignore backside of bottom paddle for turret projectiles
-                if getattr(ball, 'is_turret_projectile', False) and p.side == 'bottom':
-                    # Bottom paddle faces up; backside is below it
-                    if ball.pos.y > p.rect.centery and ball.vel.y < 0:
-                        continue
+                # Turret projectiles on initial trajectory shoot "over" paddles (ignore collision)
+                if getattr(ball, 'is_turret_projectile', False) and getattr(ball, 'initial_trajectory', False):
+                    # After traveling some distance or changing direction significantly, end initial trajectory
+                    if not hasattr(ball, '_trajectory_start'):
+                        ball._trajectory_start = ball.pos.copy()
+                    else:
+                        travel_distance = ball.pos.distance_to(ball._trajectory_start)
+                        # End initial trajectory after traveling 100 pixels
+                        if travel_distance > 100:
+                            ball.initial_trajectory = False
+                    continue
                 # Precompute direction of incoming ball for paddle shake effect
                 impact_dir = pygame.Vector2(0,0)
                 if ball.vel.length_squared() > 0:
@@ -1720,6 +1811,28 @@ while running:
                     hit_wall = True
                     break
 
+                # Turret projectiles damage player wall
+                if getattr(ball, 'is_turret_projectile', False):
+                    # End initial trajectory when hitting wall
+                    ball.initial_trajectory = False
+                    # Heavy bombs become much heavier after hitting walls
+                    if getattr(ball, 'turret_type', '') == 'heavy':
+                        ball.heavy_mode = True
+                    player_wall.shatter_block(b, incoming_dir, castle.debris)
+                    if 'wall_break' in sounds: 
+                        sounds['wall_break'].play()
+                    trigger_shake(6)
+                    balls.remove(ball)
+                    # Wall damage particles
+                    for _ in range(8):
+                        ang = random.uniform(0, 360)
+                        spd = random.uniform(1, 2.5)
+                        vel = pygame.Vector2(spd, 0).rotate(ang)
+                        color = random.choice([(140,140,140), (220,220,220), (80,80,80)])
+                        particles.append(Particle(ball.pos.x, ball.pos.y, vel, color, life=20))
+                    hit_wall = True
+                    break
+
                 # Default bounce
                 reflect(ball, b)
                 ball.pos += ball.vel*0.1
@@ -1785,10 +1898,24 @@ while running:
 
                 # Turret projectiles: apply damage values and heavy AoE
                 if getattr(ball, 'is_turret_projectile', False):
+                    # End initial trajectory when hitting castle
+                    ball.initial_trajectory = False
                     # Determine damage by turret type, default from projectile data
                     dmg = float(getattr(ball, 'turret_damage', 10))
                     turret_type = getattr(ball, 'turret_type', 'basic')
-                    # Impact point
+                    
+                    # Heavy bombs are inert on impact - just light fuse and slow down
+                    if turret_type == 'heavy' and not getattr(ball, 'fuse_lit', False):
+                        ball.heavy_mode = True  # Activate heavy friction
+                        ball.fuse_lit = True   # Light the fuse
+                        ball.fuse_timer = pygame.time.get_ticks()
+                        # Bounce off lightly instead of destroying
+                        reflect(ball, b)
+                        ball.pos += ball.vel * 0.1
+                        # Don't do damage immediately - wait for explosion
+                        break
+                    
+                    # Impact point for non-heavy or already-exploded heavy bombs
                     impact_x = max(b.left, min(ball.pos.x, b.right))
                     impact_y = max(b.top, min(ball.pos.y, b.bottom))
                     impact_point = (int(impact_x), int(impact_y))
@@ -1799,10 +1926,19 @@ while running:
                         if not hasattr(castle, '_turret_damage_accum'):
                             castle._turret_damage_accum = {}
                         key = (b.x, b.y)
-                        castle._turret_damage_accum[key] = castle._turret_damage_accum.get(key, 0.0) + (dmg * 0.25) / 10.0
+                        # Each rapid bullet does 0.25 damage (takes 4 bullets for 1 full hit)
+                        castle._turret_damage_accum[key] = castle._turret_damage_accum.get(key, 0.0) + 0.25
                         whole_hits = int(castle._turret_damage_accum[key])
                         castle._turret_damage_accum[key] -= whole_hits
-                        for _ in range(max(1, whole_hits)):
+                        
+                        # Visual feedback: small chip particles for each bullet hit
+                        for _ in range(3):
+                            vel = pygame.Vector2(random.uniform(-1, 1), random.uniform(-1, 1)) * 2
+                            color = (200, 150, 100)  # Dust/chip color
+                            particles.append(Particle(ball.pos.x, ball.pos.y, vel, color, life=15))
+                        
+                        # Only apply hits when we've accumulated enough fractional damage
+                        for _ in range(whole_hits):
                             castle.hit_block(b, impact_point=impact_point, impact_angle=impact_angle)
                     else:
                         # Apply damage by calling hit_block appropriate number of times
@@ -1811,6 +1947,18 @@ while running:
                             castle.hit_block(b, impact_point=impact_point, impact_angle=impact_angle)
                     # Heavy: AoE around impact
                     if turret_type == 'heavy':
+                        # Play heavy explosion sound (low pitch)
+                        try:
+                            import castle as castle_module
+                            castle_module._prepare_shot_sounds()
+                            if castle_module._SHOT_SOUNDS:
+                                castle_module._update_cannon_sound_volumes()
+                                explosion_sfx = castle_module._SHOT_SOUNDS.get('0.1') or castle_module._SHOT_SOUNDS.get('normal')
+                                if explosion_sfx:
+                                    explosion_sfx.play()
+                        except:
+                            pass
+                        
                         aoe_radius = int(60 * SCALE)
                         for bb in castle.blocks[:]:
                             if bb == b:
@@ -1952,6 +2100,29 @@ while running:
     for ball in balls: ball.draw(scene_surf, small_font)
     for part in particles:
         part.draw(scene_surf)
+    
+    # Update and draw explosion circles
+    for explosion in explosion_circles[:]:
+        x, y, start_time, duration = explosion
+        elapsed = now - start_time
+        if elapsed >= duration:
+            explosion_circles.remove(explosion)
+        else:
+            # Draw expanding circle showing AoE radius
+            progress = elapsed / duration
+            max_radius = int(80 * SCALE)  # Same as AoE radius
+            current_radius = int(max_radius * progress)
+            alpha = int(255 * (1 - progress))  # Fade out over time
+            
+            # Create a surface for the circle with alpha
+            circle_surf = pygame.Surface((max_radius * 2 + 4, max_radius * 2 + 4), pygame.SRCALPHA)
+            circle_color = (*([255, 100, 0]), alpha)  # Orange with alpha
+            pygame.draw.circle(circle_surf, circle_color, 
+                             (max_radius + 2, max_radius + 2), current_radius, 3)
+            
+            # Blit to scene
+            circle_rect = circle_surf.get_rect(center=(int(x), int(y)))
+            scene_surf.blit(circle_surf, circle_rect)
 
     # Draw paddle tooltips (after paddles are drawn, before blit to screen)
     # Tooltips should pause while the End-of-Wave screen is active to avoid
@@ -2237,6 +2408,9 @@ while running:
         pause_menu.draw(screen)
         options_menu.draw(screen)
         store.draw(screen)
+        # Draw build menu when active (fix flickering issue)
+        if build_menu and build_menu.active:
+            build_menu.draw(screen)
     
     # Single display flip to prevent flickering
     pygame.display.flip()

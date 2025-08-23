@@ -100,9 +100,14 @@ class Ball:
         self.pos += self.vel * dt
 
         # --- apply friction (linear) and spin damping ---
-        # Heavy turret projectiles slow down faster
+        # Heavy turret projectiles slow down faster after impact
         if getattr(self, 'is_turret_projectile', False) and getattr(self, 'turret_type', '') == 'heavy':
-            self.vel *= BALL_FRICTION * 0.95  # Extra friction for heavy bombs
+            if getattr(self, 'heavy_mode', False):
+                # After wall impact, becomes very heavy and slows down rapidly
+                self.vel *= BALL_FRICTION * 0.92  # Much heavier friction after impact
+            else:
+                # Before impact, travels normally
+                self.vel *= BALL_FRICTION
         else:
             self.vel *= BALL_FRICTION
         self.spin *= SPIN_DAMPING
@@ -224,14 +229,43 @@ class Ball:
 
         # Heavy turret bomb appearance and slowdown
         if getattr(self, 'is_turret_projectile', False) and getattr(self, 'turret_type', '') == 'heavy':
-            size = BALL_RADIUS * 2 + 6
+            size = BALL_RADIUS * 2 + 20  # Bigger to accommodate fuse line
             bs = pygame.Surface((size, size), pygame.SRCALPHA)
             c = size // 2
             # black bomb body
             pygame.draw.circle(bs, (20,20,20), (c,c), BALL_RADIUS+2)
             pygame.draw.circle(bs, (60,60,60), (c-2,c-2), BALL_RADIUS)
-            # short fuse spark
-            pygame.draw.circle(bs, (255,200,80), (c+BALL_RADIUS//2, c-BALL_RADIUS//2), 3)
+            
+            # Dynamic fuse line (if lit)
+            if getattr(self, 'fuse_lit', False):
+                # Calculate fuse progress
+                now = pygame.time.get_ticks()
+                elapsed = now - getattr(self, 'fuse_timer', now)
+                fuse_length_ms = getattr(self, 'fuse_length', 2000)
+                remaining = fuse_length_ms - elapsed
+                
+                if remaining > 0:
+                    # Fuse gets shorter over time
+                    fuse_progress = elapsed / fuse_length_ms
+                    max_fuse_length = 15
+                    current_fuse_length = int(max_fuse_length * (1 - fuse_progress))
+                    
+                    if current_fuse_length > 0:
+                        # Draw fuse line from bomb center outward
+                        fuse_start = (c, c - BALL_RADIUS - 2)
+                        fuse_end = (c, c - BALL_RADIUS - 2 - current_fuse_length)
+                        pygame.draw.line(bs, (220, 220, 220), fuse_start, fuse_end, 2)
+                        
+                        # Sparking fuse tip
+                        spark_colors = [(255, 255, 255), (255, 200, 0), (255, 100, 0)]
+                        spark_color = random.choice(spark_colors)
+                        pygame.draw.circle(bs, spark_color, fuse_end, 2)
+            else:
+                # Unlit fuse (static)
+                fuse_start = (c, c - BALL_RADIUS - 2)
+                fuse_end = (c, c - BALL_RADIUS - 17)
+                pygame.draw.line(bs, (150, 150, 150), fuse_start, fuse_end, 2)
+            
             final = pygame.transform.rotate(bs, 0)
             rect = final.get_rect(center=(x, y))
             screen.blit(final, rect)

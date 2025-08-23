@@ -209,13 +209,11 @@ class Store:
                     StoreUpgrade("turret_health", "Reinforced Plating",
                                "Increase turret durability against enemy fire", 40, 3, "tiered"),
                     StoreUpgrade("ammo_basic", "Basic Ammo Pack",
-                               "Purchase 25 rounds of basic ammunition", 15, 1, "consumable"),
+                               "Purchase 25 rounds of basic ammunition", 50, 1, "consumable"),
                     StoreUpgrade("ammo_rapid", "Rapid Ammo Pack",
-                               "Purchase 20 rounds of rapid-fire ammunition", 20, 1, "consumable"),
+                               "Purchase 20 rounds of rapid-fire ammunition", 100, 1, "consumable"),
                     StoreUpgrade("ammo_heavy", "Heavy Ammo Pack",
-                               "Purchase 10 rounds of heavy ammunition", 30, 1, "consumable"),
-                    StoreUpgrade("ammo_bulk", "Bulk Ammo Crate",
-                               "Purchase 50 rounds of general ammunition", 35, 1, "consumable"),
+                               "Purchase 10 rounds of heavy ammunition", 200, 1, "consumable"),
                 ]
         }
         return upgrades
