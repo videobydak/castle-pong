@@ -189,7 +189,7 @@ SPIN_DAMPING  = 0.995  # Per-frame damping applied to angular velocity
 SPIN_TRANSFER = .1    # Fraction of paddle tangential velocity converted into spin on hit
 LINEAR_TRANSFER = 0.7  # Fraction of paddle tangential velocity added to linear velocity on hit
 
-DEBUG = True  # Set to False to disable debug console logs
+DEBUG = False  # Set to False to disable debug console logs
 
 # --- Debug Settings ---
 DEBUG_STARTING_COINS = 1000000  # Set to a positive number to start with that many coins (only works when DEBUG = True)

@@ -97,6 +97,11 @@ class Turret:
         
         # Fire if charging is complete
         if self.charging and now - self.charge_start_time >= self.charge_duration:
+            # Check if we still have a valid target
+            if not self.target:
+                self.charging = False  # Stop charging if target is lost
+                return None
+                
             # Check if we have ammo
             from ammo import spend_ammo, get_ammo_by_type, get_ammo_count
             turret_type = getattr(self, 'turret_type', 'basic')
@@ -104,6 +109,7 @@ class Turret:
             # Try to spend ammo
             if not spend_ammo(1, turret_type):
                 # No ammo available
+                self.charging = False  # Stop charging if no ammo
                 return None
             
                         # Fire at target
