@@ -126,8 +126,7 @@ class BuildMenu:
         if not self.active:
             return False
         
-        # Debug: Print all events when build menu is active
-        print(f"BuildMenu received event: {event.type} - {event}")
+        # Handle events when build menu is active
         
         if event.type == pygame.MOUSEBUTTONDOWN:
             if event.button == 1:  # Left click
@@ -165,7 +164,6 @@ class BuildMenu:
         elif event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 if self.placement_mode:
-                    print("ESC: Canceling placement mode")
                     self.placement_mode = False
                     self.show_menu_ui = True  # Show menu again when canceling placement
                     self.placement_preview = None  # Clear preview explicitly
@@ -192,10 +190,7 @@ class BuildMenu:
                     elif event.key == pygame.K_DOWN:
                         self.placement_grid_y = min(max_grid_y, self.placement_grid_y + 1)
                     
-                    print(f"Arrow key pressed: grid moved from ({old_x}, {old_y}) to ({self.placement_grid_x}, {self.placement_grid_y})")
-                    
                     # Update placement preview using keyboard grid position (no mouse)
-                    print(f"Updating placement preview from keyboard")
                     self._update_placement_preview()
                 else:
                     # Navigate between turrets and cancel button (0-3)
@@ -215,16 +210,12 @@ class BuildMenu:
                     from config import BLOCK_SIZE
                     grid_pixel_x = self.placement_grid_x * BLOCK_SIZE
                     grid_pixel_y = self.placement_grid_y * BLOCK_SIZE
-                    print(f"Enter/Space pressed: attempting to place turret at grid ({self.placement_grid_x}, {self.placement_grid_y}) = pixel ({grid_pixel_x}, {grid_pixel_y})")
                     self._handle_placement_click((grid_pixel_x, grid_pixel_y))
-                elif self.placement_mode and not self.placement_valid:
-                    print("Enter/Space pressed but placement not valid")
                 elif not self.placement_mode:
                     if self.selected_index == 3:  # Cancel button selected
                         self.hide()
                     elif self.selected_index < 3 and self._can_afford_turret(self.selected_turret_type):
                         # Enter placement mode if we can afford the turret
-                        print(f"Entering placement mode for {self.selected_turret_type}")
                         self.placement_mode = True
                         # Hide the menu UI so player can see the game field
                         self.show_menu_ui = False
@@ -266,11 +257,8 @@ class BuildMenu:
                 self._update_placement_preview()
                 # Auto-close build menu and continue to next wave
                 self.hide()
-            else:
-                # Failed to place - don't spend coins
-                print("Failed to place turret at", grid_x, grid_y)
-        else:
-            print("Not enough coins for turret")
+            # Failed to place turret - insufficient funds or invalid location
+            pass
     
     def _update_placement_preview(self, mouse_pos: Optional[Tuple[int, int]] = None):
         """Update the placement preview."""
@@ -284,17 +272,13 @@ class BuildMenu:
             if hasattr(self, 'placement_grid_x') and hasattr(self, 'placement_grid_y'):
                 from config import BLOCK_SIZE
                 mouse_pos = (self.placement_grid_x * BLOCK_SIZE, self.placement_grid_y * BLOCK_SIZE)
-                print(f"Using keyboard grid position: ({self.placement_grid_x}, {self.placement_grid_y}) -> {mouse_pos}")
             else:
                 # Fallback to center of screen
                 from config import WIDTH, HEIGHT
                 mouse_pos = (WIDTH // 2, HEIGHT // 2)
-                print(f"Using fallback center position: {mouse_pos}")
         
         # Get placement preview from build system
-        print(f"Getting placement preview for position: {mouse_pos}")
         self.placement_valid, self.placement_preview = self.build_system.get_placement_preview(mouse_pos)
-        print(f"Placement preview result: valid={self.placement_valid}, preview={self.placement_preview}")
     
     def _update_hover_states(self, mouse_pos: Tuple[int, int]):
         """Update hover states for buttons."""

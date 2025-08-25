@@ -446,6 +446,9 @@ POWER_DURATION = 10000  # ms (power-up active time)
 # explosion circle effects
 explosion_circles = []  # List of (x, y, start_time, duration)
 
+# permanent blast marks now handled by debris system - pixel-level grass charring!
+# blast_marks = []  # Old system - now using debris particles that paint on grass
+
 power_timers = {}  # side -> (type, expiry_time)
 
 # Global barrier power timer
@@ -530,6 +533,8 @@ try:
     sounds['eos_no_bonus'] = _load_sound('EOS - No Bonus')
     sounds['eos_yes_bonus'] = _load_sound('EOS - Yes Bonus')
     sounds['explosion_big'] = _load_sound('explosionBIG')
+    sounds['explosion'] = _load_sound('explosion')
+    sounds['heavy_turret_shot'] = _load_sound('heavyTurretShot')
 
     # Volumes will be set after options menu is initialized
 
@@ -601,6 +606,7 @@ def return_to_main_menu(show_menu=True):
     flash_timer = 0
     power_timers = {}
     barrier_timer = 0
+    # blast_marks.clear()  # Old system - now using debris particles
     shoot_enable_time = 0
     wave_font      = pygame.font.Font(None, 72)
     wave_text      = ""
@@ -930,9 +936,6 @@ while running:
             # Update build system (turrets)
             if build_system:
                 castle_blocks = castle.blocks if castle else []
-                # Debug turret count
-                if pygame.time.get_ticks() % 2000 < 50:  # Every 2 seconds
-                    print(f"DEBUG: Build system has {len(build_system.turrets)} turrets")
                 turret_projectiles = build_system.update(ms_castle, balls, player_wall, castle_blocks)
                 # Handle turret projectiles using existing cannonball system
                 if turret_projectiles:
@@ -957,6 +960,12 @@ while running:
                             turret_ball.is_turret_projectile = True
                             turret_ball.turret_type = projectile_data.get('turret_type', 'basic')
                             turret_ball.turret_damage = projectile_data.get('damage', 10)
+                            # Add immunity timer to prevent immediate player wall damage
+                            # Heavy turrets get permanent immunity from damaging player wall
+                            if projectile_data.get('turret_type') == 'heavy':
+                                turret_ball.player_wall_immunity_until = pygame.time.get_ticks() + 999999999  # Permanent immunity for heavy bombs
+                            else:
+                                turret_ball.player_wall_immunity_until = pygame.time.get_ticks() + 100  # 100ms immunity for other turrets
                             # Heavy bomb slows down quickly
                             if turret_ball.turret_type == 'heavy':
                                 # apply more friction by tagging and handling in update loop via BALL_FRICTION already applied
@@ -971,6 +980,7 @@ while running:
                                 turret_ball.fuse_lit = False  # Fuse starts unlit
                                 turret_ball.fuse_timer = 0
                                 turret_ball.fuse_length = 2000  # 2 second fuse
+                
                             # Slight initial spread already applied for rapid
                             # TEMPORARILY DISABLED - Turret firing sounds (causing random pops)
                             # TODO: Fix turret sound logic to prevent random firing
@@ -1116,6 +1126,9 @@ while running:
             mask = new_mask
             castle_building = False  # Don't auto-start building yet
             castle_built_once = False  # Reset so building can start after loading
+            
+            # Update store game state with new castle
+            store.set_game_state(paddles, player_wall, castle)
             
             print("[DEBUG] Map generation complete - completing loading...")
             # Complete the loading transition
@@ -1316,6 +1329,8 @@ while running:
     for ball in (balls[:] if not paused else []):
         ball.update(dt)
         
+
+        
         # Heavy bomb fuse effect and explosion
         if (getattr(ball, 'is_turret_projectile', False) and 
             getattr(ball, 'turret_type', '') == 'heavy' and 
@@ -1325,26 +1340,24 @@ while running:
             elapsed = now - getattr(ball, 'fuse_timer', now)
             remaining = getattr(ball, 'fuse_length', 2000) - elapsed
             
+
+            
             # Fuse particle effects
             if remaining > 0:
-                # Fuse line effect (white line getting shorter)
-                fuse_progress = elapsed / getattr(ball, 'fuse_length', 2000)
-                fuse_length = int(15 * (1 - fuse_progress))  # Line gets shorter
-                if fuse_length > 0:
-                    fuse_end = ball.pos + pygame.Vector2(fuse_length, -5)
-                    # Add fuse particles
-                    for _ in range(random.randint(1, 3)):
-                        spark_pos = ball.pos + pygame.Vector2(random.uniform(0, fuse_length), random.uniform(-8, -2))
-                        vel = pygame.Vector2(random.uniform(-0.5, 0.5), random.uniform(-2, -0.5))
+                # Add fuse burning particles
+                if now % 100 < 50:  # Add particles every 100ms for 50ms duration  
+                    for _ in range(random.randint(2, 4)):
+                        spark_pos = ball.pos + pygame.Vector2(random.uniform(-8, 8), random.uniform(-12, -4))
+                        vel = pygame.Vector2(random.uniform(-1, 1), random.uniform(-3, -1))
                         col = random.choice([(255, 255, 255), (255, 200, 0), (255, 100, 0)])
-                        particles.append(Particle(spark_pos.x, spark_pos.y, vel, col, life=20))
+                        particles.append(Particle(spark_pos.x, spark_pos.y, vel, col, life=30))
             else:
                 # EXPLOSION TIME!
                 balls.remove(ball)
                 
-                # Screen flash effect
-                flash_color = (255, 255, 200)
-                flash_timer = 300  # 300ms flash
+                # Skip screen flash for heavy bomb - particles are dramatic enough
+                # flash_color = (255, 255, 200)  
+                # flash_timer = 300
                 
                 # Heavy explosion sound
                 if 'explosion_big' in sounds:
@@ -1361,16 +1374,158 @@ while running:
                         for _ in range(3):
                             castle.hit_block(castle_block)
                 
-                # Massive explosion particles
+                # EPIC EXPLOSION PARTICLES - Multiple waves of different effects
+                explosion_center = ball.pos
+                
+                # Wave 1: ULTRA-FAST white-hot core particles (anime style)
+                for _ in range(35):
+                    ang = random.uniform(0, 360)
+                    spd = random.uniform(15, 25)  # MUCH faster - anime speed
+                    vel = pygame.Vector2(spd, 0).rotate(ang)
+                    color = random.choice([(255, 255, 255), (255, 255, 255), (255, 255, 200)])  # More white
+                    particles.append(Particle(explosion_center.x, explosion_center.y, vel, color, life=35))  # Shorter life for speed
+                
+                # Wave 2: Fast fire particles (orange-yellow)  
                 for _ in range(50):
                     ang = random.uniform(0, 360)
-                    spd = random.uniform(3, 8)
+                    spd = random.uniform(8, 16)  # Faster
                     vel = pygame.Vector2(spd, 0).rotate(ang)
-                    color = random.choice([(255, 200, 0), (255, 100, 0), (255, 150, 0), (200, 200, 200)])
-                    particles.append(Particle(ball.pos.x, ball.pos.y, vel, color, life=40))
+                    color = random.choice([(255, 200, 0), (255, 150, 0), (255, 180, 50)])
+                    particles.append(Particle(explosion_center.x, explosion_center.y, vel, color, life=45))  # Shorter life
                 
-                # Add explosion circle effect to show AoE radius
-                explosion_circles.append((ball.pos.x, ball.pos.y, pygame.time.get_ticks(), 800))  # 800ms duration
+                # Wave 3: Medium debris particles (red-orange)
+                for _ in range(30):
+                    ang = random.uniform(0, 360) 
+                    spd = random.uniform(6, 12)  # Faster
+                    vel = pygame.Vector2(spd, 0).rotate(ang)
+                    color = random.choice([(255, 100, 0), (255, 50, 0), (200, 80, 0)])
+                    particles.append(Particle(explosion_center.x, explosion_center.y, vel, color, life=50))
+                
+                # Wave 4: ANIME-STYLE WHITE HOT STREAKS - More dramatic radial bursts
+                num_bursts = 24  # DOUBLE the light rays for anime effect
+                for i in range(num_bursts):
+                    # Evenly spaced radial directions
+                    angle = (i * 360 / num_bursts) + random.uniform(-5, 5)  
+                    
+                    # Multiple particles per burst line to create THICK white-hot streaks
+                    for j in range(12):  # More particles per ray = thicker streaks
+                        distance_along_ray = j * 12  # Closer spaced for solid lines
+                        ray_pos = explosion_center + pygame.Vector2(distance_along_ray, 0).rotate(angle)
+                        
+                        # ULTRA-FAST radial movement - anime speed
+                        spd = random.uniform(18, 30)  # Much faster
+                        vel = pygame.Vector2(spd, 0).rotate(angle)
+                        
+                        # PURE WHITE anime-style colors
+                        color = random.choice([(255, 255, 255), (255, 255, 255), (255, 255, 200)])
+                        particles.append(Particle(ray_pos.x, ray_pos.y, vel, color, life=30))  # Short, bright flash
+                
+                # Wave 5: Secondary white streaks (diagonal anime lines)  
+                for _ in range(40):
+                    # Random angles for chaotic white streaks
+                    ang = random.uniform(0, 360)
+                    spd = random.uniform(20, 35)  # Super fast anime streaks
+                    vel = pygame.Vector2(spd, 0).rotate(ang)
+                    color = (255, 255, 255)  # Pure white only
+                    particles.append(Particle(explosion_center.x, explosion_center.y, vel, color, life=25))
+                
+                # Wave 6: Smoke/dust particles (reduced, faster)
+                for _ in range(15):
+                    ang = random.uniform(0, 360)
+                    spd = random.uniform(2, 6)  # Faster smoke
+                    vel = pygame.Vector2(spd, 0).rotate(ang)
+                    color = random.choice([(150, 150, 150), (120, 120, 120), (100, 100, 100)])
+                    particles.append(Particle(explosion_center.x, explosion_center.y, vel, color, life=60))
+                
+                # PERFORMANCE TESTING: Toggle blast mark components individually
+                ENABLE_PROCEDURAL_MARKS = True    # Component 1: Pixel-level grass charring system
+                ENABLE_DEBRIS_CHARRING = False    # Component 2: Darken existing debris in blast area (now handled by new system)
+                ENABLE_ASH_PARTICLES = False     # Component 3: Add new ash particles around charred debris
+                
+                blast_radius = int(60 * SCALE)
+                
+                # Component 1: Create organic blast debris that chars the grass pixel-by-pixel
+                if ENABLE_PROCEDURAL_MARKS:
+                    # Create "blast debris" particles that paint char marks on grass like regular debris
+                    num_blast_debris = random.randint(80, 120)  # More particles for good coverage
+                    for _ in range(num_blast_debris):
+                        # Random direction from explosion center
+                        angle = random.uniform(0, 360)
+                        # Distance varies - more dense near center, sparser at edges
+                        max_distance = blast_radius * random.uniform(0.3, 1.2)  # Some go beyond radius
+                        distance = random.uniform(5, max_distance)
+                        
+                        # Calculate position
+                        blast_x = explosion_center.x + distance * math.cos(math.radians(angle))
+                        blast_y = explosion_center.y + distance * math.sin(math.radians(angle))
+                        
+                        # Darker colors based on distance from center (fading effect)
+                        distance_ratio = distance / (blast_radius * 1.2)  # 0 at center, 1 at edge
+                        if distance_ratio < 0.3:  # Inner core - very dark
+                            char_colors = [(8, 5, 3), (12, 8, 4), (15, 10, 5)]
+                        elif distance_ratio < 0.6:  # Middle ring - medium dark
+                            char_colors = [(25, 15, 8), (35, 20, 10), (45, 25, 12)]
+                        else:  # Outer ring - lighter char
+                            char_colors = [(60, 40, 20), (70, 45, 25), (80, 50, 25)]
+                        
+                        char_color = random.choice(char_colors)
+                        
+                        # Create blast debris that paints char marks (like regular debris)
+                        dig_frames_total = random.randint(8, 20)
+                        has_bounce = random.random() < 0.2
+                        blast_debris = {
+                            'pos': pygame.Vector2(blast_x, blast_y),
+                            'vel': pygame.Vector2(random.uniform(-1, 1), random.uniform(-1, 1)),  # Slight movement
+                            'color': char_color,
+                            'size': random.randint(2, 5),
+                            'friction': 0.98,  # Slow down quickly
+                            'dig_frames': dig_frames_total,  # Paint for several frames
+                            'dig_frames_total': dig_frames_total,  # Store total for fading calculation
+                            'dig_fade': True,  # Enable fading
+                            'dig_bounce': has_bounce,  # Some bounce for irregularity
+                            'dig_bounce_freq': random.uniform(0.05, 0.25) if has_bounce else 0,  # Bounce frequency
+                            'dig_bounce_phase': random.uniform(0, 1) if has_bounce else 0  # Bounce phase
+                        }
+                        castle.debris.append(blast_debris)
+                
+                # Component 2: Char existing debris streaks in the blast radius
+                if ENABLE_DEBRIS_CHARRING:
+                    debris_to_char = []
+                    for debris in castle.debris:
+                        if 'pos' in debris:
+                            debris_dist = pygame.Vector2(debris['pos']).distance_to(pygame.Vector2(explosion_center.x, explosion_center.y))
+                            if debris_dist <= blast_radius:
+                                debris_to_char.append(debris)
+                    
+                    # Darken debris streaks in blast area
+                    for debris in debris_to_char:
+                        if 'color' in debris:
+                            # Darken the debris color (char it)
+                            old_r, old_g, old_b = debris['color'][:3]
+                            char_factor = 0.3  # Darken to 30% of original
+                            debris['color'] = (
+                                int(old_r * char_factor),
+                                int(old_g * char_factor), 
+                                int(old_b * char_factor)
+                            )
+                            
+                            # Component 3: Add ash particles around charred debris
+                            if ENABLE_ASH_PARTICLES and random.random() < 0.3:  # 30% chance
+                                ash_color = (20, 15, 10)
+                                ash_debris = {
+                                    'pos': debris['pos'] + pygame.Vector2(random.uniform(-5, 5), random.uniform(-5, 5)),
+                                    'vel': pygame.Vector2(random.uniform(-0.5, 0.5), random.uniform(-0.5, 0.5)),
+                                    'color': ash_color,
+                                    'size': random.randint(1, 3),
+                                    'friction': 0.95,
+                                    'dig_frames': random.randint(30, 60)
+                                }
+                                castle.debris.append(ash_debris)
+                
+                # Add multiple explosion circle effects for more dramatic impact
+                explosion_circles.append((ball.pos.x, ball.pos.y, pygame.time.get_ticks(), 1000))  # Main blast circle - longer duration
+                explosion_circles.append((ball.pos.x, ball.pos.y, pygame.time.get_ticks() + 100, 800))  # Secondary ring with delay
+                explosion_circles.append((ball.pos.x, ball.pos.y, pygame.time.get_ticks() + 200, 600))  # Tertiary ring with more delay
                 
                 continue  # Skip rest of ball logic since it's been removed
         
@@ -1437,8 +1592,12 @@ while running:
                     castle.debris.append(deb)
             continue
 
-        # Generic slow-speed explosion for any other projectile (not red fireball)
-        if (ball.vel.length() <= BALL_SHATTER_SPEED and not (ball.color == RED and not ball.is_power)):
+        # Generic slow-speed explosion for any other projectile (not red fireball or heavy bombs with lit fuses)
+        if (ball.vel.length() <= BALL_SHATTER_SPEED and 
+            not (ball.color == RED and not ball.is_power) and
+            not (getattr(ball, 'is_turret_projectile', False) and 
+                 getattr(ball, 'turret_type', '') == 'heavy' and 
+                 getattr(ball, 'fuse_lit', False))):
             # Capture the direction of travel (fallback upward if undefined)
             dir_vec = ball.pos - ball.prev
             if dir_vec.length_squared() == 0:
@@ -1479,6 +1638,20 @@ while running:
 
         # barrier edge bounce or removal when out of bounds
         if not screen.get_rect().colliderect(r):
+            # Heavy bombs with lit fuses should bounce off screen edges, never be removed
+            if (getattr(ball, 'is_turret_projectile', False) and 
+                getattr(ball, 'turret_type', '') == 'heavy' and 
+                getattr(ball, 'fuse_lit', False)):
+                # reflect off window edges
+                if r.left < 0 or r.right > WIDTH:
+                    ball.vel.x *= -1
+                    ball.pos.x = BALL_RADIUS if r.left < 0 else WIDTH - BALL_RADIUS
+                if r.top < 0 or r.bottom > HEIGHT:
+                    ball.vel.y *= -1
+                    ball.pos.y = BALL_RADIUS if r.top < 0 else HEIGHT - BALL_RADIUS
+                ball.initial_trajectory = False
+                continue
+                
             if barrier_active and ball.color != RED:
                 # reflect off window edges
                 if r.left < 0 or r.right > WIDTH:
@@ -1813,6 +1986,23 @@ while running:
 
                 # Turret projectiles damage player wall
                 if getattr(ball, 'is_turret_projectile', False):
+                    # Check immunity timer to prevent immediate friendly fire
+                    immunity_until = getattr(ball, 'player_wall_immunity_until', 0)
+                    if pygame.time.get_ticks() < immunity_until:
+                        # Still immune - just bounce off harmlessly
+                        reflect(ball, b)
+                        ball.pos += ball.vel * 0.1
+                        ball.initial_trajectory = False
+                        break
+                    
+                    # Heavy bombs with lit fuses should bounce off player wall, not be removed
+                    if (getattr(ball, 'turret_type', '') == 'heavy' and 
+                        getattr(ball, 'fuse_lit', False)):
+                        reflect(ball, b)
+                        ball.pos += ball.vel * 0.1
+                        ball.initial_trajectory = False
+                        break
+                    
                     # End initial trajectory when hitting wall
                     ball.initial_trajectory = False
                     # Heavy bombs become much heavier after hitting walls
@@ -1843,7 +2033,51 @@ while running:
                 continue  # handled, next ball
 
             # ---------------------------------------------------
-            # No collision with player wall – continue with castle
+            # Check collision with friendly turrets
+            # ---------------------------------------------------
+            if build_system:
+                for turret in build_system.turrets[:]:
+                    if not r.colliderect(turret.rect):
+                        continue
+                    
+                    # Skip friendly projectiles (turret projectiles don't hit turrets)
+                    if getattr(ball, 'is_turret_projectile', False):
+                        continue
+                    
+                    # Turret takes damage
+                    if turret.take_damage():
+                        # Turret destroyed! Create explosion particles and sound
+                        explosion_particles = build_system.destroy_turret(turret)
+                        
+                        # Add particles to main particle system
+                        from utils import Particle
+                        for p in explosion_particles:
+                            particles.append(Particle(
+                                p['pos'].x, p['pos'].y, 
+                                p['vel'], p['color'], 
+                                p['life'], p['size']
+                            ))
+                        
+                        # Play explosion sound
+                        if 'explosion' in sounds:
+                            sounds['explosion'].play()
+                        
+                        # Screen shake
+                        trigger_shake(8)
+                    
+                    # Remove ball (it hit the turret)
+                    if ball in balls:
+                        balls.remove(ball)
+                    break  # Exit turret loop
+                else:
+                    # No turret collision, continue to castle blocks
+                    pass
+                # If we hit a turret, skip castle collision
+                if ball not in balls:
+                    continue
+
+            # ---------------------------------------------------
+            # No collision with player wall or turrets – continue with castle
             # ---------------------------------------------------
             for b in castle.blocks[:]:
                 if not r.colliderect(b):
@@ -1909,10 +2143,18 @@ while running:
                         ball.heavy_mode = True  # Activate heavy friction
                         ball.fuse_lit = True   # Light the fuse
                         ball.fuse_timer = pygame.time.get_ticks()
+                        # Play paddle hit sound for heavy bomb collision
+                        if 'paddle_hit' in sounds:
+                            sounds['paddle_hit'].play()
                         # Bounce off lightly instead of destroying
                         reflect(ball, b)
                         ball.pos += ball.vel * 0.1
                         # Don't do damage immediately - wait for explosion
+                        break
+                    elif turret_type == 'heavy' and getattr(ball, 'fuse_lit', False):
+                        # Just bounce off, don't remove
+                        reflect(ball, b)
+                        ball.pos += ball.vel * 0.1
                         break
                     
                     # Impact point for non-heavy or already-exploded heavy bombs
@@ -2072,6 +2314,9 @@ while running:
     # — Draw everything onto off-screen surface —
     scene_surf.blit(WHITE_BG, (0,0))
     scene_surf.blit(BACKGROUND, (0,0))
+    
+    # Blast marks now handled by debris system - pixel-level grass charring!
+    
     castle.draw(scene_surf)
     # Overlay build animation (scaling bricks, sprouting turrets) if active.
     # Skip drawing during paddle intro animations because the heavy per-brick
@@ -2101,28 +2346,83 @@ while running:
     for part in particles:
         part.draw(scene_surf)
     
-    # Update and draw explosion circles
+    # Update and draw EPIC explosion circles
     for explosion in explosion_circles[:]:
         x, y, start_time, duration = explosion
         elapsed = now - start_time
         if elapsed >= duration:
             explosion_circles.remove(explosion)
         else:
-            # Draw expanding circle showing AoE radius
+            # Draw epic multi-layered explosion effect
             progress = elapsed / duration
             max_radius = int(80 * SCALE)  # Same as AoE radius
             current_radius = int(max_radius * progress)
             alpha = int(255 * (1 - progress))  # Fade out over time
             
-            # Create a surface for the circle with alpha
-            circle_surf = pygame.Surface((max_radius * 2 + 4, max_radius * 2 + 4), pygame.SRCALPHA)
-            circle_color = (*([255, 100, 0]), alpha)  # Orange with alpha
-            pygame.draw.circle(circle_surf, circle_color, 
-                             (max_radius + 2, max_radius + 2), current_radius, 3)
+            # Create explosion surface
+            explosion_size = max_radius * 2 + 20
+            explosion_surf = pygame.Surface((explosion_size, explosion_size), pygame.SRCALPHA)
+            center = explosion_size // 2
+            
+            # Layer 1: Inner core (white-hot center)
+            if progress < 0.3:
+                core_alpha = int(255 * (1 - progress / 0.3))
+                core_radius = int(current_radius * 0.3)
+                if core_radius > 0:
+                    pygame.draw.circle(explosion_surf, (255, 255, 255, core_alpha), 
+                                     (center, center), core_radius)
+            
+            # Layer 2: Inner fire (yellow-orange)
+            if progress < 0.6:
+                fire_alpha = int(alpha * 0.8)
+                fire_radius = int(current_radius * 0.6)
+                if fire_radius > 0:
+                    pygame.draw.circle(explosion_surf, (255, 200, 0, fire_alpha), 
+                                     (center, center), fire_radius, 4)
+            
+            # Layer 3: Middle blast (orange-red)
+            orange_alpha = int(alpha * 0.6)
+            orange_radius = int(current_radius * 0.8)
+            if orange_radius > 0:
+                pygame.draw.circle(explosion_surf, (255, 100, 0, orange_alpha), 
+                                 (center, center), orange_radius, 5)
+            
+            # Layer 4: Outer ring (red)
+            red_alpha = int(alpha * 0.4)
+            if current_radius > 0:
+                pygame.draw.circle(explosion_surf, (255, 50, 0, red_alpha), 
+                                 (center, center), current_radius, 6)
+            
+            # Layer 5: Outer shockwave (grey)
+            if progress > 0.2:
+                shockwave_progress = (progress - 0.2) / 0.8  # 0 to 1 over last 80% of animation
+                shockwave_radius = int(max_radius * 1.5 * shockwave_progress)
+                shockwave_alpha = int(100 * (1 - shockwave_progress))
+                if shockwave_radius > current_radius:
+                    pygame.draw.circle(explosion_surf, (150, 150, 150, shockwave_alpha), 
+                                     (center, center), shockwave_radius, 3)
+            
+            # Add random explosion particles around the blast
+            if progress < 0.7:  # Only during first 70% of animation
+                particle_count = int(15 * (1 - progress))
+                for _ in range(particle_count):
+                    particle_angle = random.uniform(0, 360)
+                    particle_dist = random.uniform(current_radius * 0.5, current_radius * 1.2)
+                    particle_x = center + int(particle_dist * math.cos(math.radians(particle_angle)))
+                    particle_y = center + int(particle_dist * math.sin(math.radians(particle_angle)))
+                    particle_color = random.choice([
+                        (255, 255, 255), (255, 200, 0), (255, 100, 0), (255, 50, 0)
+                    ])
+                    particle_size = random.randint(2, 6)
+                    if 0 <= particle_x < explosion_size and 0 <= particle_y < explosion_size:
+                        pygame.draw.circle(explosion_surf, particle_color, 
+                                         (particle_x, particle_y), particle_size)
             
             # Blit to scene
-            circle_rect = circle_surf.get_rect(center=(int(x), int(y)))
-            scene_surf.blit(circle_surf, circle_rect)
+            explosion_rect = explosion_surf.get_rect(center=(int(x), int(y)))
+            scene_surf.blit(explosion_surf, explosion_rect)
+            
+
 
     # Draw paddle tooltips (after paddles are drawn, before blit to screen)
     # Tooltips should pause while the End-of-Wave screen is active to avoid
@@ -2384,13 +2684,19 @@ while running:
             wave_banner_sparks.clear()
             wave_banner_smoke.clear()
 
-    # flash effect overlay
+    # flash effect overlay (disabled for heavy bombs, enabled for other effects like powerups)
     if flash_timer > 0 and flash_color:
-        alpha = int(120 * (flash_timer/FLASH_DURATION))
-        flash_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
-        flash_surf.fill((*flash_color, alpha))
-        screen.blit(flash_surf, (0,0))
+        alpha = min(100, int(100 * (flash_timer/FLASH_DURATION)))
+        if alpha > 0:
+            # Simple approach: fill a surface and set its alpha
+            flash_surf = pygame.Surface((WIDTH, HEIGHT))
+            flash_surf.fill(flash_color)
+            flash_surf.set_alpha(alpha)
+            screen.blit(flash_surf, (0, 0))
         flash_timer -= ms
+    elif flash_timer > 0:
+        flash_timer -= ms
+
 
     # Magical barrier visual when active
     if barrier_active:
@@ -2453,6 +2759,7 @@ while running:
     # 2) Switch to PRE_STORE_DELAY the moment the last block is destroyed
     if len(castle.blocks) == 0 and wave_transition['state'] == 'approach':
         wave_transition.update({
+            'active': True,
             'state': 'pre_store_delay',
             'timer': 0,
         })
@@ -2480,7 +2787,13 @@ while running:
                 session_start_time = now - session_active_ms
             
             print(f"[Timer] Wave {wave} completed - Wave time: {wave_play_time_ms}ms, Total session: {session_active_ms}ms")
-            end_of_wave_screen.show(score, session_active_ms, wave_start_coins, wave)
+            # Safety check for wave_start_coins in case wave ends before proper initialization
+            try:
+                safe_wave_start_coins = wave_start_coins
+            except NameError:
+                print("[DEBUG] wave_start_coins not defined, using 0 as fallback")
+                safe_wave_start_coins = 0
+            end_of_wave_screen.show(score, session_active_ms, safe_wave_start_coins, wave)
             wave_transition['eos_shown'] = True
         
         # Check if End of Wave Screen is complete
@@ -2729,6 +3042,7 @@ while running:
         flash_timer = 0
         power_timers = {}
         barrier_timer = 0
+        # blast_marks.clear()  # Old system - now using debris particles
         shoot_enable_time = 0
         wave_font      = pygame.font.Font(None, 72)
         wave_text      = ""
@@ -2801,7 +3115,7 @@ while running:
                 if d.get('size',1) <= 0:
                     castle.debris.remove(d)
         # Center on last block – but clamp so we never reveal whitespace
-        bx, by = wave_transition['block_pos']
+        bx, by = wave_transition['block_pos'] if wave_transition['block_pos'] else (WIDTH//2, HEIGHT//2)
         # Calculate blit rect
         surf_w, surf_h = scene_surf.get_size()
         if zoom == 1.0:
@@ -2843,6 +3157,18 @@ while running:
         if wave_transition['state'] == 'build_menu' and build_menu:
             build_menu.draw(screen)
 
+        # Flash effect overlay during wave transitions (disabled for heavy bombs, enabled for other effects)
+        if flash_timer > 0 and flash_color:
+            alpha = min(100, int(100 * (flash_timer/FLASH_DURATION)))
+            if alpha > 0:
+                flash_surf = pygame.Surface((WIDTH, HEIGHT))
+                flash_surf.fill(flash_color)
+                flash_surf.set_alpha(alpha)
+                screen.blit(flash_surf, (0, 0))
+            flash_timer -= ms
+        elif flash_timer > 0:
+            flash_timer -= ms
+        
         # Draw End of Wave Screen on top of everything during transitions
         if end_of_wave_screen.active:
             end_of_wave_screen.draw(screen)

@@ -19,6 +19,8 @@ class Turret:
         self.rect = pygame.Rect(x, y, BLOCK_SIZE, BLOCK_SIZE)
         self.health = 100
         self.max_health = 100
+        self.hits_taken = 0  # Track discrete hits for destruction
+        self.max_hits = 2  # Default hits to destroy (will be overridden by subclasses)
         self.active = True
         self.last_shot = 0
         self.shot_cooldown = 1000  # ms
@@ -97,87 +99,89 @@ class Turret:
         
         # Fire if charging is complete
         if self.charging and now - self.charge_start_time >= self.charge_duration:
-            # Check if we still have a valid target
-            if not self.target:
-                self.charging = False  # Stop charging if target is lost
-                return None
+                # Check if we still have a valid target
+                if not self.target:
+                    self.charging = False  # Stop charging if target is lost
+                    return None
+                    
+                # Check if we have ammo
+                from ammo import spend_ammo, get_ammo_by_type, get_ammo_count
+                turret_type = getattr(self, 'turret_type', 'basic')
                 
-            # Check if we have ammo
-            from ammo import spend_ammo, get_ammo_by_type, get_ammo_count
-            turret_type = getattr(self, 'turret_type', 'basic')
-            
-            # Try to spend ammo
-            if not spend_ammo(1, turret_type):
-                # No ammo available
-                self.charging = False  # Stop charging if no ammo
-                return None
-            
-                        # Fire at target
-            current_time = now
-            self.last_shot = current_time
-            
-            # Reset charging state
-            self.charging = False
-            self.reload_start_time = current_time
-
-            # Track burst for rapid-fire turrets
-            if hasattr(self, 'burst_size'):
-                self.burst_count += 1
-                if self.burst_count >= self.burst_size:
-                    self.reloading = True
-                    self.reload_start = current_time
-
-            # Trigger muzzle flash and recoil animations
-            if hasattr(self, 'last_muzzle_flash'):
-                self.last_muzzle_flash = current_time
-            
-            # Start recoil animation
-            self.recoil_timer = current_time
-            self.recoil_distance = 3  # pixels to recoil backward
-
-            # Play turret shot sound effect
-            self._play_shot_sound(turret_type)
-            
-            # Calculate projectile velocity towards target using game's ball speed
-            from config import BALL_SPEED
-            turret_center = pygame.Vector2(self.x + BLOCK_SIZE // 2, self.y + BLOCK_SIZE // 2)
-            direction = (self.target - turret_center).normalize()
-            
-            # Apply accuracy-based spread to all turret types
-            accuracy = getattr(self, 'accuracy', 0.3)
-            spread_degrees = getattr(self, 'spread_degrees', 15)
-            timing_variation = getattr(self, 'timing_variation', 0.2)
-            
-            # Calculate actual spread based on accuracy
-            actual_spread = spread_degrees * (1 - accuracy)
-            
-            # DEBUG: Print accuracy values (comment out for release)
-            # print(f"DEBUG: {turret_type} turret firing - accuracy:{accuracy:.2f}, spread_deg:{spread_degrees}, actual_spread:{actual_spread:.1f}")
-            
-            # Rapid turret keeps its position variation AND gets accuracy spread
-            if turret_type == 'rapid':
-                # Machine gun positional spread (always present)
-                position_spread = 6
-                direction = direction.rotate(random.uniform(-position_spread, position_spread))
+                # Try to spend ammo
+                if not spend_ammo(1, turret_type):
+                    # No ammo available
+                    self.charging = False  # Stop charging if no ammo
+                    return None
                 
-            # Apply accuracy-based trajectory spread to all turrets
-            if actual_spread > 0:
-                direction = direction.rotate(random.uniform(-actual_spread, actual_spread))
-            
-            # Use the same speed as regular cannonballs
-            # Heavy bombs start at normal speed but slow down faster due to friction (see ball.py)
-            speed = BALL_SPEED
-            velocity = direction * speed
-            
-            return {
-                'pos': turret_center,
-                'vel': velocity,
-                'damage': self.damage,
-                'color': getattr(self, 'projectile_color', WHITE),
-                'turret_type': turret_type
-            }
+                # Fire at target
+                current_time = now
+                self.last_shot = current_time
+                
+                # Reset charging state
+                self.charging = False
+                self.reload_start_time = current_time
+
+                # Track burst for rapid-fire turrets
+                if hasattr(self, 'burst_size'):
+                    self.burst_count += 1
+                    if self.burst_count >= self.burst_size:
+                        self.reloading = True
+                        self.reload_start = current_time
+
+                # Trigger muzzle flash and recoil animations
+                if hasattr(self, 'last_muzzle_flash'):
+                    self.last_muzzle_flash = current_time
+                
+                # Start recoil animation
+                self.recoil_timer = current_time
+                self.recoil_distance = 3  # pixels to recoil backward
+
+                # Play turret shot sound effect
+                self._play_shot_sound(turret_type)
+                
+                # Calculate projectile velocity towards target using game's ball speed
+                from config import BALL_SPEED
+                turret_center = pygame.Vector2(self.x + BLOCK_SIZE // 2, self.y + BLOCK_SIZE // 2)
+                direction = (self.target - turret_center).normalize()
+                
+                # Apply accuracy-based spread to all turret types
+                accuracy = getattr(self, 'accuracy', 0.3)
+                spread_degrees = getattr(self, 'spread_degrees', 15)
+                timing_variation = getattr(self, 'timing_variation', 0.2)
+                
+                # Calculate actual spread based on accuracy
+                actual_spread = spread_degrees * (1 - accuracy)
+                
+                # Rapid turret keeps its position variation AND gets accuracy spread
+                if turret_type == 'rapid':
+                    # Machine gun positional spread (always present)
+                    position_spread = 6
+                    direction = direction.rotate(random.uniform(-position_spread, position_spread))
+                    
+                # Apply accuracy-based trajectory spread to all turrets
+                if actual_spread > 0:
+                    direction = direction.rotate(random.uniform(-actual_spread, actual_spread))
+                
+                # Use the same speed as regular cannonballs
+                # Heavy bombs start at normal speed but slow down faster due to friction (see ball.py)
+                speed = BALL_SPEED
+                velocity = direction * speed
+                
+                return {
+                    'pos': turret_center,
+                    'vel': velocity,
+                    'damage': self.damage,
+                    'color': getattr(self, 'projectile_color', WHITE),
+                    'turret_type': turret_type
+                }
             
         return None
+    
+    def take_damage(self) -> bool:
+        """Take one hit of damage. Returns True if turret is destroyed."""
+        self.hits_taken += 1
+        return self.hits_taken >= self.max_hits
     
     def _find_target(self, enemies: List, player_wall: PlayerWall, castle_blocks: List = None) -> Optional[pygame.Vector2]:
         """Find the best target within range. Prefer castle blocks only."""
@@ -247,16 +251,12 @@ class Turret:
             # Keep rotation in [0, 360) range
             self.rotation = self.rotation % 360
     
-    def take_damage(self, damage: int):
-        """Take damage from enemy attacks."""
-        self.health = max(0, self.health - damage)
-        if self.health <= 0:
-            self.active = False
+
     
     def _play_shot_sound(self, turret_type: str):
         """Play appropriate shot sound for turret type."""
         try:
-            # Import castle module to access shot sounds
+            # Use castle module shot sounds for ALL turrets (including heavy)
             import castle as castle_module
             castle_module._prepare_shot_sounds()
             if not castle_module._SHOT_SOUNDS:
@@ -273,8 +273,8 @@ class Turret:
                 # Higher pitch, lighter sound for rapid fire
                 sfx = castle_module._SHOT_SOUNDS.get('1.9') or castle_module._SHOT_SOUNDS.get('normal')
             elif turret_type == 'heavy':
-                # Lower pitch for heavy turret
-                sfx = castle_module._SHOT_SOUNDS.get('0.85') or castle_module._SHOT_SOUNDS.get('normal')
+                # Lower pitch for heavy turret - use deeper pitch for heavy feel
+                sfx = castle_module._SHOT_SOUNDS.get('0.5') or castle_module._SHOT_SOUNDS.get('0.85') or castle_module._SHOT_SOUNDS.get('normal')
             else:
                 sfx = castle_module._SHOT_SOUNDS.get('normal')
             
@@ -418,6 +418,25 @@ class Turret:
                 
                 # Border
                 pygame.draw.rect(surface, (255, 255, 255), (bar_x, bar_y, bar_width, bar_height), 1)
+        
+        # Draw damage meter (red bar showing hits taken)
+        if self.hits_taken > 0:
+            damage_bar_width = BLOCK_SIZE - 4
+            damage_bar_height = 3
+            damage_bar_x = int(center.x - damage_bar_width // 2)
+            damage_bar_y = int(center.y + BLOCK_SIZE // 2 - 5)  # Above reload bar
+            
+            # Background (darker red)
+            pygame.draw.rect(surface, (80, 20, 20), (damage_bar_x, damage_bar_y, damage_bar_width, damage_bar_height))
+            
+            # Damage progress (bright red)
+            damage_progress = self.hits_taken / self.max_hits
+            damage_width = int(damage_bar_width * damage_progress)
+            damage_color = (255, 50, 50) if damage_progress < 0.8 else (255, 0, 0)  # Brighter red when near death
+            pygame.draw.rect(surface, damage_color, (damage_bar_x, damage_bar_y, damage_width, damage_bar_height))
+            
+            # Border
+            pygame.draw.rect(surface, (255, 255, 255), (damage_bar_x, damage_bar_y, damage_bar_width, damage_bar_height), 1)
 
         # Brief trajectory tracer right after firing (helps indicate aim)
         if hasattr(self, 'last_shot') and pygame.time.get_ticks() - self.last_shot < 120:
@@ -500,6 +519,7 @@ class BasicTurret(Turret):
         self.range = 220
         self.damage = 20
         self.rotation_speed = 120  # Base rotation speed for upgrades
+        self.max_hits = 2  # Basic turret: 2 hits to destroy
         # Accuracy properties  
         self.accuracy = 0.2  # Low base accuracy - very inaccurate initially
         self.spread_degrees = 20  # High spread
@@ -524,6 +544,7 @@ class RapidTurret(Turret):
         # lower the base damage to 10 to work with the (dmg*0.25)/10 formula.
         self.damage = 10
         self.rotation_speed = 180  # Faster rotation for rapid targeting
+        self.max_hits = 3  # Rapid turret: 3 hits to destroy
         
         # Accuracy properties (less accurate due to rapid fire)
         self.accuracy = 0.1  # Very low base accuracy for machine gun
@@ -556,6 +577,7 @@ class HeavyTurret(Turret):
         self.damage = 40
         self.max_health = 150  # More durable
         self.rotation_speed = 90   # Slower, more deliberate rotation
+        self.max_hits = 5  # Heavy turret: 5 hits to destroy
         
         # Accuracy properties (most accurate but slowest)
         self.accuracy = 0.3  # Moderate base accuracy for heavy artillery
@@ -569,7 +591,7 @@ class HeavyTurret(Turret):
         self.muzzle_flash_color = (200, 255, 200)  # Green flash
         self.last_muzzle_flash = 0
         self.charge_particles = []
-        self.is_charging = False
+        # Note: Using 'charging' from base class, not 'is_charging'
 
 
 class BuildSystem:
@@ -616,20 +638,27 @@ class BuildSystem:
         return buildable_rect
     
     def can_place_turret(self, x: int, y: int) -> bool:
-        """Check if a turret can be placed at the given position."""
-        # Check if position is within buildable area
-        if not self.buildable_area.collidepoint(x, y):
+        """Check if a turret can be placed at the given position. Turrets can only be placed on player wall blocks."""
+        placement_rect = pygame.Rect(x, y, BLOCK_SIZE, BLOCK_SIZE)
+        
+        # Check if position overlaps with a player wall block (player's castle blocks)
+        if self.player_wall and hasattr(self.player_wall, 'blocks') and self.player_wall.blocks:
+            player_block_found = False
+            for block in self.player_wall.blocks:
+                if placement_rect.colliderect(block):
+                    player_block_found = True
+                    break
+            
+            # Must be placed on a player wall block
+            if not player_block_found:
+                return False
+        else:
+            # No player wall available - can't place anywhere
             return False
             
         # Check if position overlaps with existing turrets
-        placement_rect = pygame.Rect(x, y, BLOCK_SIZE, BLOCK_SIZE)
         for turret in self.turrets:
             if placement_rect.colliderect(turret.rect):
-                return False
-                
-        # Check if position overlaps with player wall blocks
-        for block in self.player_wall.blocks:
-            if placement_rect.colliderect(block):
                 return False
         
         return True
@@ -641,7 +670,7 @@ class BuildSystem:
         grid_y = (mouse_pos[1] // BLOCK_SIZE) * BLOCK_SIZE
         
         preview_rect = pygame.Rect(grid_x, grid_y, BLOCK_SIZE, BLOCK_SIZE)
-        can_place = self.can_place_turret(grid_x, grid_y)
+        can_place = self.can_place_turret(grid_x, grid_y)  # No castle parameter needed
         
         return can_place, preview_rect
     
@@ -651,11 +680,8 @@ class BuildSystem:
             return False
             
         # Unlock ammo type when first turret is placed
-        from ammo import unlock_type, get_ammo_by_type
-        print(f"DEBUG: Placing {turret_type} turret at ({x}, {y})")
-        print(f"DEBUG: Ammo before unlock: {get_ammo_by_type(turret_type)}")
+        from ammo import unlock_type
         unlock_type(turret_type)
-        print(f"DEBUG: Ammo after unlock: {get_ammo_by_type(turret_type)}")
             
         # Create turret based on type
         if turret_type == "basic":
@@ -672,6 +698,45 @@ class BuildSystem:
             
         self.turrets.append(turret)
         return True
+    
+    def destroy_turret(self, turret) -> List[Dict]:
+        """Destroy a turret and return particles for explosion effect."""
+        if turret in self.turrets:
+            self.turrets.remove(turret)
+        
+        # Create explosion particles
+        particles = []
+        turret_center = pygame.Vector2(turret.x + BLOCK_SIZE // 2, turret.y + BLOCK_SIZE // 2)
+        
+        # Metal debris particles (gray/silver)
+        for _ in range(15):
+            angle = random.uniform(0, 360)
+            speed = random.uniform(2, 6)
+            vel = pygame.Vector2(speed, 0).rotate(angle)
+            color = random.choice([(120, 120, 140), (100, 100, 120), (140, 140, 160)])
+            particles.append({
+                'pos': turret_center.copy(),
+                'vel': vel,
+                'color': color,
+                'life': random.randint(30, 60),
+                'size': random.randint(2, 4)
+            })
+        
+        # Fire/explosion particles (orange/red)
+        for _ in range(20):
+            angle = random.uniform(0, 360)
+            speed = random.uniform(1, 4)
+            vel = pygame.Vector2(speed, 0).rotate(angle)
+            color = random.choice([(255, 100, 0), (255, 150, 0), (255, 200, 0), (255, 0, 0)])
+            particles.append({
+                'pos': turret_center.copy(),
+                'vel': vel,
+                'color': color,
+                'life': random.randint(20, 40),
+                'size': random.randint(1, 3)
+            })
+        
+        return particles
     
     def _apply_turret_upgrades(self, turret):
         """Apply store upgrades to a turret."""
@@ -711,24 +776,6 @@ class BuildSystem:
             turret.max_health = int(turret.max_health * (1 + health_level * 0.3))
             turret.health = turret.max_health  # Start at full health
     
-    def get_placement_preview(self, mouse_pos: Tuple[int, int]) -> Tuple[bool, pygame.Rect]:
-        """Get placement preview rectangle and validity for given position."""
-        from config import BLOCK_SIZE
-        
-        # Snap to grid
-        grid_x = (mouse_pos[0] // BLOCK_SIZE) * BLOCK_SIZE
-        grid_y = (mouse_pos[1] // BLOCK_SIZE) * BLOCK_SIZE
-        
-        # Create preview rectangle
-        preview_rect = pygame.Rect(grid_x, grid_y, BLOCK_SIZE, BLOCK_SIZE)
-        
-        # Check if placement is valid
-        is_valid = self.can_place_turret(grid_x, grid_y)
-        
-        print(f"BuildSystem.get_placement_preview: pos={mouse_pos} -> grid=({grid_x}, {grid_y}), valid={is_valid}")
-        
-        return is_valid, preview_rect
-    
     def get_turret_cost(self, turret_type: str) -> int:
         """Get the cost of a turret type."""
         return self.turret_costs.get(turret_type, 0)
@@ -741,7 +788,7 @@ class BuildSystem:
             if not turret.active:
                 self.turrets.remove(turret)
                 continue
-                
+            
             projectile_data = turret.update(dt_ms, enemies, player_wall, castle_blocks)
             if projectile_data:
                 projectiles.append(projectile_data)
@@ -751,15 +798,18 @@ class BuildSystem:
     def draw(self, surface: pygame.Surface, show_buildable_area: bool = False):
         """Draw all turrets and buildable area highlight."""
         # Only show buildable area when explicitly requested (during build menu)
-        if show_buildable_area:
-            # Draw buildable area highlight (semi-transparent)
-            highlight_surface = pygame.Surface((self.buildable_area.width, self.buildable_area.height))
-            highlight_surface.set_alpha(50)
+        if show_buildable_area and self.player_wall and hasattr(self.player_wall, 'blocks'):
+            # Draw player wall blocks as buildable areas (semi-transparent green)
+            highlight_surface = pygame.Surface((BLOCK_SIZE, BLOCK_SIZE))
+            highlight_surface.set_alpha(120)  # More visible
             highlight_surface.fill((0, 255, 0))  # Green highlight
-            surface.blit(highlight_surface, self.buildable_area.topleft)
             
-            # Draw buildable area border
-            pygame.draw.rect(surface, (0, 200, 0), self.buildable_area, 2)
+            # Highlight each player wall block
+            for block in self.player_wall.blocks:
+                surface.blit(highlight_surface, (block.x, block.y))
+                
+                # Draw border around each buildable block - make it more visible
+                pygame.draw.rect(surface, (0, 255, 0), block, 4)  # Thicker border
         
         # Draw all turrets
         for turret in self.turrets:

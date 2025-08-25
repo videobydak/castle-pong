@@ -229,6 +229,8 @@ class Ball:
 
         # Heavy turret bomb appearance and slowdown
         if getattr(self, 'is_turret_projectile', False) and getattr(self, 'turret_type', '') == 'heavy':
+            fuse_lit = getattr(self, 'fuse_lit', False)
+            
             size = BALL_RADIUS * 2 + 20  # Bigger to accommodate fuse line
             bs = pygame.Surface((size, size), pygame.SRCALPHA)
             c = size // 2
@@ -237,7 +239,7 @@ class Ball:
             pygame.draw.circle(bs, (60,60,60), (c-2,c-2), BALL_RADIUS)
             
             # Dynamic fuse line (if lit)
-            if getattr(self, 'fuse_lit', False):
+            if fuse_lit:
                 # Calculate fuse progress
                 now = pygame.time.get_ticks()
                 elapsed = now - getattr(self, 'fuse_timer', now)
@@ -266,8 +268,10 @@ class Ball:
                 fuse_end = (c, c - BALL_RADIUS - 17)
                 pygame.draw.line(bs, (150, 150, 150), fuse_start, fuse_end, 2)
             
-            final = pygame.transform.rotate(bs, 0)
-            rect = final.get_rect(center=(x, y))
+            # Rotate bomb sprite to match physics rotation
+            angle_deg = math.degrees(self.angle)
+            final = pygame.transform.rotate(bs, -angle_deg)
+            rect = final.get_rect(center=(int(self.pos.x), int(self.pos.y)))
             screen.blit(final, rect)
             return
 
